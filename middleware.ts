@@ -31,8 +31,9 @@ export async function middleware(request: NextRequest) {
   const isAuthPage = path.startsWith("/login");
   const isCallback = path.startsWith("/auth/callback");
   const isAdmin = path.startsWith("/admin");
+  const isPublic = path.startsWith("/privacy") || path.startsWith("/terms");
 
-  if (!user && !isAuthPage && !isCallback) {
+  if (!user && !isAuthPage && !isCallback && !isPublic) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
