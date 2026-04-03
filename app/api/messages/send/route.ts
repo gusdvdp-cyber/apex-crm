@@ -1,87 +1,77 @@
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 
-const META_TOKEN = process.env.META_PAGE_ACCESS_TOKEN!;
-const EVOLUTION_URL = process.env.EVOLUTION_API_URL!;
-const EVOLUTION_KEY = process.env.EVOLUTION_API_KEY!;
-const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE!;
+const CHATWOOT_URL = process.env.CHATWOOT_URL!;
+const CHATWOOT_TOKEN = process.env.CHATWOOT_API_TOKEN!;
+const CHATWOOT_ACCOUNT = process.env.CHATWOOT_ACCOUNT_ID!;
 
 export async function POST(req: NextRequest) {
-  const { conversationId, text, channel, recipientId } = await req.json();
-  if (!text?.trim()) return NextResponse.json({ error: "No text" }, { status: 400 });
-
-  const supabase = await createClient();
-  let externalId: string | null = null;
-
   try {
-    // ── Envío por canal ──────────────────────────────
-    if (channel === "messenger") {
-      const res = await fetch(
-        `https://graph.facebook.com/v19.0/me/messages?access_token=${META_TOKEN}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            recipient: { id: recipientId },
-            message: { text },
-          }),
-        }
-      );
-      const data = await res.json();
-      externalId = data.message_id ?? null;
+    const { conversation_id, content } = await req.json();
+
+    if (!conversation_id || !content) {
+      return NextResponse.json({ error: "Faltan parámetros" }, { status: 400 });
     }
 
-    else if (channel === "instagram") {
-      const res = await fetch(
-        `https://graph.facebook.com/v19.0/me/messages?access_token=${META_TOKEN}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            recipient: { id: recipientId },
-            message: { text },
-          }),
-        }
-      );
-      const data = await res.json();
-      externalId = data.message_id ?? null;
+    // 1 — Obtener la conversación de Supabase para conseguir el external_id (chatwoot_X)
+    const cookieStore = await cookies();
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() { return cookieStore.getAll(); },
+          setAll() {},
+        },
+      }
+    );
+
+    const { data: conversation, error: convError } = await supabase
+      .from("conversations")
+      .select("external_id, channel")
+      .eq("id", conversation_id)
+      .single();
+
+    if (convError || !conversation) {
+      return NextResponse.json({ error: "Conversación no encontrada" }, { status: 404 });
     }
 
-    else if (channel === "whatsapp") {
-      const res = await fetch(
-        `${EVOLUTION_URL}/message/sendText/${EVOLUTION_INSTANCE}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "apikey": EVOLUTION_KEY,
-          },
-          body: JSON.stringify({
-            number: recipientId,
-            text,
-          }),
-        }
-      );
-      const data = await res.json();
-      externalId = data.key?.id ?? null;
+    // external_id tiene formato "chatwoot_123" → extraemos el número
+    const chatwootConvId = conversation.external_id?.replace("chatwoot_", "");
+
+    if (!chatwootConvId) {
+      return NextResponse.json({ error: "No hay Chatwoot ID para esta conversación" }, { status: 400 });
     }
 
-    // ── Guardar en Supabase ──────────────────────────
-    await supabase.from("messages").insert({
-      conversation_id: conversationId,
-      from_type: "me",
-      text,
-      external_id: externalId,
-    });
+    // 2 — Enviar mensaje via Chatwoot API
+    const chatwootRes = await fetch(
+      `${CHATWOOT_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT}/conversations/${chatwootConvId}/messages`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "api_access_token": CHATWOOT_TOKEN,
+        },
+        body: JSON.stringify({
+          content,
+          message_type: "outgoing",
+          private: false,
+        }),
+      }
+    );
 
-    await supabase.from("conversations").update({
-      last_message: text,
-      updated_at: new Date().toISOString(),
-    }).eq("id", conversationId);
+    if (!chatwootRes.ok) {
+      const err = await chatwootRes.text();
+      console.error("Chatwoot error:", err);
+      return NextResponse.json({ error: "Error al enviar por Chatwoot", detail: err }, { status: 500 });
+    }
 
-    return NextResponse.json({ ok: true });
+    const result = await chatwootRes.json();
+
+    return NextResponse.json({ ok: true, message_id: result.id });
   } catch (err) {
     console.error("Send error:", err);
-    return NextResponse.json({ error: "Send failed" }, { status: 500 });
+    return NextResponse.json({ error: "Error interno" }, { status: 500 });
   }
 }
