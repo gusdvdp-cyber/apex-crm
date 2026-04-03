@@ -116,7 +116,6 @@ export default function InboxPage() {
   const setupRealtime = (oid: string) => {
     const supabase = createClient();
 
-    // Realtime en mensajes nuevos
     supabase
       .channel("inbox-messages")
       .on("postgres_changes", {
@@ -127,15 +126,11 @@ export default function InboxPage() {
         const newMsg = payload.new as Message;
         setMessages((prev) => {
           if (prev.find((m) => m.id === newMsg.id)) return prev;
-          if (selected?.id && prev[0] && prev[0].id) {
-            // Solo agregamos si pertenece a la conv seleccionada
-          }
           return [...prev, newMsg];
         });
       })
       .subscribe();
 
-    // Realtime en conversaciones
     supabase
       .channel("inbox-conversations")
       .on("postgres_changes", {
@@ -152,7 +147,6 @@ export default function InboxPage() {
   const selectConversation = (conv: Conversation) => {
     setSelected(conv);
     fetchMessages(conv.id);
-    // Marcar como leído
     const supabase = createClient();
     supabase.from("conversations").update({ unread_count: 0 }).eq("id", conv.id);
     setConversations((prev) => prev.map((c) => c.id === conv.id ? { ...c, unread_count: 0 } : c));
@@ -162,19 +156,12 @@ export default function InboxPage() {
     if (!newMessage.trim() || !selected || sending) return;
     setSending(true);
 
-    // Extraer recipientId del external_id de la conversación
-    // formato: pageId_contactId
-    const parts = selected.external_id?.split("_") ?? [];
-    const recipientId = parts[parts.length - 1] ?? "";
-
     const res = await fetch("/api/messages/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        conversationId: selected.id,
-        text: newMessage,
-        channel: selected.channel,
-        recipientId,
+        conversation_id: selected.id,
+        content: newMessage,
       }),
     });
 
