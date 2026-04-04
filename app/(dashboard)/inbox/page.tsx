@@ -16,6 +16,8 @@ interface Message {
   text: string;
   created_at: string;
   external_id: string | null;
+  media_url?: string | null;
+  media_type?: string | null;
 }
 
 interface Conversation {
@@ -46,6 +48,38 @@ function ChannelIcon({ channel, size = 12 }: { channel: Channel; size?: number }
       {c.svg}
     </div>
   );
+}
+
+function MessageContent({ msg }: { msg: Message }) {
+  const isMe = msg.from_type === "me";
+  const color = isMe ? "#0a0a0a" : "#f0f0f0";
+
+  if (msg.media_type === "image" && msg.media_url) {
+    return (
+      <>
+        <img
+          src={msg.media_url}
+          alt="imagen"
+          style={{ maxWidth: "100%", borderRadius: "8px", display: "block" }}
+        />
+        {msg.text && msg.text !== "[imagen]" && (
+          <p style={{ margin: "6px 0 0", color }}>{msg.text}</p>
+        )}
+      </>
+    );
+  }
+
+  if (msg.media_type === "audio" && msg.media_url) {
+    return (
+      <audio
+        controls
+        src={msg.media_url}
+        style={{ width: "100%", minWidth: "200px" }}
+      />
+    );
+  }
+
+  return <p style={{ margin: 0, color }}>{msg.text}</p>;
 }
 
 const initials = (name: string) => name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
@@ -296,9 +330,17 @@ export default function InboxPage() {
           <div style={{ flex: 1, overflowY: "auto", padding: "24px", display: "flex", flexDirection: "column", gap: "10px" }}>
             {messages.map((msg) => (
               <div key={msg.id} style={{ display: "flex", justifyContent: msg.from_type === "me" ? "flex-end" : "flex-start" }}>
-                <div style={{ maxWidth: "60%", padding: "10px 14px", background: msg.from_type === "me" ? "var(--accent)" : "#161616", color: msg.from_type === "me" ? "#0a0a0a" : "#f0f0f0", borderRadius: msg.from_type === "me" ? "16px 16px 4px 16px" : "16px 16px 16px 4px", fontSize: "13px", lineHeight: "1.5" }}>
-                  <p style={{ margin: 0 }}>{msg.text}</p>
-                  <p style={{ margin: "4px 0 0", fontSize: "10px", opacity: 0.5, textAlign: "right" }}>
+                <div style={{
+                  maxWidth: "60%",
+                  padding: msg.media_type === "image" ? "6px" : "10px 14px",
+                  background: msg.from_type === "me" ? "var(--accent)" : "#161616",
+                  borderRadius: msg.from_type === "me" ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
+                  fontSize: "13px",
+                  lineHeight: "1.5",
+                  overflow: "hidden",
+                }}>
+                  <MessageContent msg={msg} />
+                  <p style={{ margin: "4px 0 0", fontSize: "10px", opacity: 0.5, textAlign: "right", color: msg.from_type === "me" ? "#0a0a0a" : "#f0f0f0", paddingRight: msg.media_type === "image" ? "6px" : 0 }}>
                     {fmtTime(msg.created_at)}
                   </p>
                 </div>
