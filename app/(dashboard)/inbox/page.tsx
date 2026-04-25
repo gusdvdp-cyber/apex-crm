@@ -3,10 +3,9 @@
 import { useEffect, useState, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
-  Search, MessageCircle, Mail, MoreVertical,
-  Send, Paperclip, Smile, UserCheck, Activity, ChevronDown, X,
+  Search, MessageCircle, Mail, Send, Paperclip,
+  Smile, UserCheck, Activity, ChevronDown, X,
 } from "lucide-react";
-import { useSidebar } from "@/lib/sidebar-context";
 
 type Channel = "whatsapp" | "instagram" | "messenger" | "gmail" | "outlook";
 type Tab = "social" | "email";
@@ -55,14 +54,6 @@ interface Conversation {
   agent?: AgentProfile | null;
 }
 
-interface ContactPanel {
-  contactId: string;
-  name: string;
-  phone: string | null;
-  email: string | null;
-  conversationId: string;
-}
-
 const SOCIAL_CHANNELS: Channel[] = ["whatsapp", "instagram", "messenger"];
 const EMAIL_CHANNELS: Channel[] = ["gmail", "outlook"];
 const CONV_FILTERS: { key: ConvFilter; label: string }[] = [
@@ -91,29 +82,23 @@ function ChannelIcon({ channel, size = 12 }: { channel: Channel; size?: number }
 function MessageContent({ msg }: { msg: Message }) {
   const isMe = msg.from_type === "me";
   const color = isMe ? "#0a0a0a" : "#f0f0f0";
-
   if (msg.media_type === "image" && msg.media_url) {
     return (
       <>
         <img src={msg.media_url} alt="imagen" style={{ maxWidth: "100%", borderRadius: "8px", display: "block" }} />
-        {msg.text && msg.text !== "[imagen]" && (
-          <p style={{ margin: "6px 0 0", color }}>{msg.text}</p>
-        )}
+        {msg.text && msg.text !== "[imagen]" && <p style={{ margin: "6px 0 0", color }}>{msg.text}</p>}
       </>
     );
   }
-
   if (msg.media_type === "audio" && msg.media_url) {
     return <audio controls src={msg.media_url} style={{ width: "100%", minWidth: "200px" }} />;
   }
-
   return <p style={{ margin: 0, color }}>{msg.text}</p>;
 }
 
 function ContactField({ label, value, onSave }: { label: string; value: string; onSave: (v: string) => void }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(value);
-
   useEffect(() => { setVal(value); }, [value]);
 
   const save = () => {
@@ -125,18 +110,15 @@ function ContactField({ label, value, onSave }: { label: string; value: string; 
     <div>
       <p style={{ fontSize: "10px", color: "#444", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", margin: "0 0 5px" }}>{label}</p>
       {editing ? (
-        <input
-          autoFocus
-          value={val}
+        <input autoFocus value={val}
           onChange={e => setVal(e.target.value)}
           onBlur={save}
           onKeyDown={e => { if (e.key === "Enter") save(); if (e.key === "Escape") { setVal(value); setEditing(false); } }}
           style={{ width: "100%", background: "#111", border: "1px solid var(--accent)", borderRadius: "6px", padding: "7px 10px", color: "#f0f0f0", fontSize: "12px", outline: "none", boxSizing: "border-box" }}
         />
       ) : (
-        <div
-          onClick={() => setEditing(true)}
-          style={{ padding: "7px 10px", borderRadius: "6px", background: "#111", border: "1px solid #1a1a1a", cursor: "text", color: val ? "#f0f0f0" : "#333", fontSize: "12px", transition: "border-color 0.1s ease" }}
+        <div onClick={() => setEditing(true)}
+          style={{ padding: "7px 10px", borderRadius: "6px", background: "#111", border: "1px solid #1a1a1a", cursor: "text", color: val ? "#f0f0f0" : "#333", fontSize: "12px", transition: "border-color 0.1s" }}
           onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = "#2a2a2a"}
           onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = "#1a1a1a"}
         >
@@ -147,23 +129,22 @@ function ContactField({ label, value, onSave }: { label: string; value: string; 
   );
 }
 
-const initials = (name: string) => name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
+const mkInitials = (name: string) => name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
 const fmtTime = (iso: string) => {
   const d = new Date(iso);
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
+  const diff = Date.now() - d.getTime();
   if (diff < 86400000) return d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
   if (diff < 172800000) return "Ayer";
   return d.toLocaleDateString("es-AR", { day: "2-digit", month: "short" });
 };
 
 export default function InboxPage() {
-  const { setCollapsed } = useSidebar();
   const [orgId, setOrgId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
-  const [selected, setSelected] = useState<Conversation | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showContactPanel, setShowContactPanel] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>("social");
   const [convFilter, setConvFilter] = useState<ConvFilter>("all");
   const [search, setSearch] = useState("");
@@ -172,49 +153,50 @@ export default function InboxPage() {
   const [loading, setLoading] = useState(true);
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
-  const [contactPanel, setContactPanel] = useState<ContactPanel | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // Deriva selected siempre fresco desde el array de conversations
+  const selected = conversations.find(c => c.id === selectedId) ?? null;
+
   useEffect(() => { init(); }, []);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [timeline]);
-
   useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setShowAssignDropdown(false);
-      }
+    const h = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) setShowAssignDropdown(false);
     };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
   }, []);
 
   const init = async () => {
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    setCurrentUserId(user.id);
-    const { data: profile } = await supabase.from("profiles").select("organization_id").eq("id", user.id).single();
-    if (!profile) return;
-    setOrgId(profile.organization_id);
-    await Promise.all([
-      fetchConversations(profile.organization_id),
-      fetchAgents(profile.organization_id),
-    ]);
-    setupRealtime(profile.organization_id);
-    setLoading(false);
+    try {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      setCurrentUserId(user.id);
+      const { data: profile } = await supabase.from("profiles").select("organization_id").eq("id", user.id).single();
+      if (!profile) return;
+      setOrgId(profile.organization_id);
+      const convs = await fetchConversations(profile.organization_id);
+      await fetchAgents(profile.organization_id);
+      setupRealtime(profile.organization_id);
+      if (convs.length > 0) {
+        setSelectedId(convs[0].id);
+        fetchTimeline(convs[0].id);
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const fetchAgents = async (oid: string) => {
     const supabase = createClient();
-    const { data } = await supabase
-      .from("profiles")
-      .select("id, display_name, avatar_url")
-      .eq("organization_id", oid);
+    const { data } = await supabase.from("profiles").select("id, display_name, avatar_url").eq("organization_id", oid);
     setAgents((data as AgentProfile[]) ?? []);
   };
 
-  const fetchConversations = async (oid: string) => {
+  const fetchConversations = async (oid: string): Promise<Conversation[]> => {
     const supabase = createClient();
     const { data } = await supabase
       .from("conversations")
@@ -223,25 +205,14 @@ export default function InboxPage() {
       .order("updated_at", { ascending: false });
     const convs = (data as Conversation[]) ?? [];
     setConversations(convs);
-    if (convs.length > 0 && !selected) {
-      setSelected(convs[0]);
-      fetchTimeline(convs[0].id);
-    }
+    return convs;
   };
 
   const fetchTimeline = async (convId: string) => {
     const supabase = createClient();
     const [{ data: msgs }, { data: logs }] = await Promise.all([
-      supabase
-        .from("messages")
-        .select("*, sender:profiles!sent_by(id, display_name, avatar_url)")
-        .eq("conversation_id", convId)
-        .order("created_at", { ascending: true }),
-      supabase
-        .from("activity_log")
-        .select("*, performer:profiles!performed_by(id, display_name, avatar_url)")
-        .eq("conversation_id", convId)
-        .order("created_at", { ascending: true }),
+      supabase.from("messages").select("*, sender:profiles!sent_by(id, display_name, avatar_url)").eq("conversation_id", convId).order("created_at", { ascending: true }),
+      supabase.from("activity_log").select("*, performer:profiles!performed_by(id, display_name, avatar_url)").eq("conversation_id", convId).order("created_at", { ascending: true }),
     ]);
     const items: TimelineItem[] = [
       ...(msgs ?? []).map(m => ({ type: "message" as const, ts: m.created_at, data: m as Message })),
@@ -252,36 +223,25 @@ export default function InboxPage() {
 
   const setupRealtime = (oid: string) => {
     const supabase = createClient();
-
-    supabase.channel("inbox-messages")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
+    supabase.channel("inbox-msgs")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, payload => {
         const msg = payload.new as Message;
-        setTimeline(prev => {
-          if (prev.find(i => i.type === "message" && i.data.id === msg.id)) return prev;
-          return [...prev, { type: "message", ts: msg.created_at, data: msg }];
-        });
-      })
-      .subscribe();
-
-    supabase.channel("inbox-activity")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "activity_log" }, (payload) => {
+        setTimeline(prev => prev.find(i => i.type === "message" && i.data.id === msg.id) ? prev : [...prev, { type: "message", ts: msg.created_at, data: msg }]);
+      }).subscribe();
+    supabase.channel("inbox-act")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "activity_log" }, payload => {
         const log = payload.new as ActivityEntry;
-        setTimeline(prev => {
-          if (prev.find(i => i.type === "activity" && i.data.id === log.id)) return prev;
-          return [...prev, { type: "activity", ts: log.created_at, data: log }];
-        });
-      })
-      .subscribe();
-
-    supabase.channel("inbox-conversations")
+        setTimeline(prev => prev.find(i => i.type === "activity" && i.data.id === log.id) ? prev : [...prev, { type: "activity", ts: log.created_at, data: log }]);
+      }).subscribe();
+    supabase.channel("inbox-convs")
       .on("postgres_changes", { event: "*", schema: "public", table: "conversations", filter: `organization_id=eq.${oid}` }, () => {
         fetchConversations(oid);
-      })
-      .subscribe();
+      }).subscribe();
   };
 
   const selectConversation = (conv: Conversation) => {
-    setSelected(conv);
+    setSelectedId(conv.id);
+    setShowContactPanel(true);
     setShowAssignDropdown(false);
     fetchTimeline(conv.id);
     const supabase = createClient();
@@ -289,42 +249,22 @@ export default function InboxPage() {
     setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, unread_count: 0 } : c));
   };
 
-  const openContactPanel = (conv: Conversation) => {
-    if (!conv.contacts?.id) return;
-    setContactPanel({
-      contactId: conv.contacts.id,
-      name: conv.contacts.name,
-      phone: conv.contacts.phone,
-      email: conv.contacts.email,
-      conversationId: conv.id,
-    });
-    setCollapsed(true);
-  };
-
-  const closeContactPanel = () => {
-    setContactPanel(null);
-    setCollapsed(false);
-  };
-
   const saveContactField = async (field: "name" | "phone" | "email", value: string) => {
-    if (!contactPanel || !orgId || !currentUserId) return;
+    if (!selected?.contacts?.id || !orgId || !currentUserId) return;
     const supabase = createClient();
     await Promise.all([
-      supabase.from("contacts").update({ [field]: value }).eq("id", contactPanel.contactId),
+      supabase.from("contacts").update({ [field]: value }).eq("id", selected.contacts.id),
       supabase.from("activity_log").insert({
         organization_id: orgId,
-        conversation_id: contactPanel.conversationId,
-        contact_id: contactPanel.contactId,
+        conversation_id: selected.id,
+        contact_id: selected.contacts.id,
         performed_by: currentUserId,
         action_type: "contact_updated",
         description: `Campo "${field}" actualizado`,
       }),
     ]);
-    setContactPanel(prev => prev ? { ...prev, [field]: value } : prev);
     setConversations(prev => prev.map(c =>
-      c.id === contactPanel.conversationId && c.contacts
-        ? { ...c, contacts: { ...c.contacts, [field]: value } }
-        : c
+      c.id === selected.id && c.contacts ? { ...c, contacts: { ...c.contacts, [field]: value } } : c
     ));
   };
 
@@ -332,10 +272,6 @@ export default function InboxPage() {
     if (!selected || !orgId || !currentUserId) return;
     const supabase = createClient();
     const agent = agents.find(a => a.id === agentId) ?? null;
-    const desc = agentId
-      ? `Conversación asignada a ${agent?.display_name ?? "agente"}`
-      : "Conversación desasignada";
-
     await Promise.all([
       supabase.from("conversations").update({ assigned_to: agentId }).eq("id", selected.id),
       supabase.from("activity_log").insert({
@@ -343,11 +279,9 @@ export default function InboxPage() {
         conversation_id: selected.id,
         performed_by: currentUserId,
         action_type: "conversation_assigned",
-        description: desc,
+        description: agentId ? `Conversación asignada a ${agent?.display_name ?? "agente"}` : "Conversación desasignada",
       }),
     ]);
-
-    setSelected(prev => prev ? { ...prev, assigned_to: agentId, agent } : prev);
     setConversations(prev => prev.map(c => c.id === selected.id ? { ...c, assigned_to: agentId, agent } : c));
     setShowAssignDropdown(false);
     fetchTimeline(selected.id);
@@ -364,7 +298,7 @@ export default function InboxPage() {
     if (res.ok) {
       setNewMessage("");
       fetchTimeline(selected.id);
-      fetchConversations(orgId!);
+      if (orgId) fetchConversations(orgId);
     }
     setSending(false);
   };
@@ -391,16 +325,16 @@ export default function InboxPage() {
   return (
     <div style={{ display: "flex", height: "100%", overflow: "hidden", background: "#0a0a0a" }}>
 
-      {/* Panel izquierdo — lista conversaciones */}
-      <div style={{ width: "300px", flexShrink: 0, display: "flex", flexDirection: "column", height: "100%", background: "#0d0d0d", borderRight: "1px solid #1a1a1a" }}>
-        <div style={{ padding: "24px 16px 12px" }}>
-          <h1 style={{ fontSize: "16px", fontWeight: 700, color: "#f0f0f0", margin: "0 0 16px" }}>Inbox</h1>
+      {/* Columna 1 — lista de chats */}
+      <div style={{ width: "280px", flexShrink: 0, display: "flex", flexDirection: "column", height: "100%", background: "#0d0d0d", borderRight: "1px solid #1a1a1a" }}>
+        <div style={{ padding: "20px 16px 12px" }}>
+          <h1 style={{ fontSize: "15px", fontWeight: 700, color: "#f0f0f0", margin: "0 0 14px" }}>Inbox</h1>
 
           {/* Social / Email */}
           <div style={{ display: "flex", background: "#111", borderRadius: "10px", padding: "3px", gap: "3px", marginBottom: "10px" }}>
             {(["social", "email"] as Tab[]).map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab)}
-                style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", padding: "6px", borderRadius: "8px", border: "none", cursor: "pointer", fontSize: "11px", fontWeight: 600, background: activeTab === tab ? "#1e1e1e" : "transparent", color: activeTab === tab ? "#f0f0f0" : "#444", transition: "all 0.15s ease" }}>
+                style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", padding: "6px", borderRadius: "8px", border: "none", cursor: "pointer", fontSize: "11px", fontWeight: 600, background: activeTab === tab ? "#1e1e1e" : "transparent", color: activeTab === tab ? "#f0f0f0" : "#444", transition: "all 0.15s" }}>
                 {tab === "social" ? <MessageCircle size={12} /> : <Mail size={12} />}
                 {tab === "social" ? "Social" : "Email"}
               </button>
@@ -411,17 +345,17 @@ export default function InboxPage() {
           <div style={{ display: "flex", gap: "4px", marginBottom: "10px", flexWrap: "wrap" }}>
             {CONV_FILTERS.map(f => (
               <button key={f.key} onClick={() => setConvFilter(f.key)}
-                style={{ padding: "3px 10px", borderRadius: "20px", border: "1px solid", borderColor: convFilter === f.key ? "#c8f13540" : "#1e1e1e", background: convFilter === f.key ? "#c8f13510" : "transparent", color: convFilter === f.key ? "#c8f135" : "#444", fontSize: "10px", fontWeight: 600, cursor: "pointer" }}>
+                style={{ padding: "3px 9px", borderRadius: "20px", border: "1px solid", borderColor: convFilter === f.key ? "#c8f13540" : "#1e1e1e", background: convFilter === f.key ? "#c8f13510" : "transparent", color: convFilter === f.key ? "#c8f135" : "#444", fontSize: "10px", fontWeight: 600, cursor: "pointer" }}>
                 {f.label}
               </button>
             ))}
           </div>
 
-          {/* Buscar */}
-          <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
-            <Search size={13} color="#333" style={{ position: "absolute", left: "10px" }} />
+          {/* Búsqueda */}
+          <div style={{ position: "relative" }}>
+            <Search size={13} color="#333" style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)" }} />
             <input type="text" placeholder="Buscar..." value={search} onChange={e => setSearch(e.target.value)}
-              style={{ width: "100%", padding: "8px 10px 8px 32px", background: "#111", border: "1px solid #1e1e1e", borderRadius: "8px", color: "#f0f0f0", fontSize: "12px", outline: "none" }} />
+              style={{ width: "100%", padding: "8px 10px 8px 32px", background: "#111", border: "1px solid #1e1e1e", borderRadius: "8px", color: "#f0f0f0", fontSize: "12px", outline: "none", boxSizing: "border-box" }} />
           </div>
         </div>
 
@@ -431,29 +365,27 @@ export default function InboxPage() {
             <p style={{ textAlign: "center", color: "#333", fontSize: "12px", padding: "40px 0" }}>Sin conversaciones</p>
           )}
           {filtered.map(conv => {
-            const isSelected = conv.id === selected?.id;
+            const isSelected = conv.id === selectedId;
             const isMine = conv.assigned_to === currentUserId;
             const name = contactName(conv);
             return (
               <button key={conv.id} onClick={() => selectConversation(conv)}
-                style={{ width: "100%", display: "flex", alignItems: "flex-start", gap: "10px", padding: "10px", borderRadius: "10px", border: isSelected ? "1px solid #c8f13520" : isMine ? "1px solid #c8f13512" : "1px solid transparent", background: isSelected ? "#c8f13508" : isMine ? "#c8f1350a" : "transparent", cursor: "pointer", textAlign: "left", marginBottom: "2px", transition: "all 0.1s ease" }}
+                style={{ width: "100%", display: "flex", alignItems: "flex-start", gap: "10px", padding: "10px", borderRadius: "10px", border: isSelected ? "1px solid #c8f13520" : isMine ? "1px solid #c8f13512" : "1px solid transparent", background: isSelected ? "#c8f13508" : isMine ? "#c8f1350a" : "transparent", cursor: "pointer", textAlign: "left", marginBottom: "2px", transition: "all 0.1s" }}
                 onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = "#141414"; }}
                 onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = isMine ? "#c8f1350a" : "transparent"; }}
               >
                 <div style={{ position: "relative", flexShrink: 0 }}>
-                  <div style={{ width: "36px", height: "36px", borderRadius: "50%", background: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: "#f0f0f0" }}>
-                    {initials(name)}
+                  <div style={{ width: "34px", height: "34px", borderRadius: "50%", background: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: "#f0f0f0" }}>
+                    {mkInitials(name)}
                   </div>
-                  {conv.is_online && (
-                    <div style={{ position: "absolute", bottom: 0, right: 0, width: "9px", height: "9px", borderRadius: "50%", background: "#c8f135", border: "2px solid #0d0d0d" }} />
-                  )}
+                  {conv.is_online && <div style={{ position: "absolute", bottom: 0, right: 0, width: "8px", height: "8px", borderRadius: "50%", background: "#c8f135", border: "2px solid #0d0d0d" }} />}
                   <div style={{ position: "absolute", bottom: "-2px", right: "-4px" }}>
-                    <ChannelIcon channel={conv.channel} size={9} />
+                    <ChannelIcon channel={conv.channel} size={8} />
                   </div>
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "3px" }}>
-                    <span style={{ fontSize: "12px", fontWeight: 600, color: "#f0f0f0" }}>{name}</span>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "2px" }}>
+                    <span style={{ fontSize: "12px", fontWeight: 600, color: "#f0f0f0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{name}</span>
                     <span style={{ fontSize: "10px", color: "#333", flexShrink: 0, marginLeft: "8px" }}>{fmtTime(conv.updated_at)}</span>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
@@ -466,14 +398,14 @@ export default function InboxPage() {
                       </span>
                     )}
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "4px", marginTop: "5px" }}>
+                  <div style={{ marginTop: "4px" }}>
                     {conv.agent ? (
-                      <>
-                        <div style={{ width: "14px", height: "14px", borderRadius: "50%", background: "#2a2a2a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "7px", fontWeight: 700, color: "#c8f135" }}>
-                          {initials(conv.agent.display_name ?? "?")}
+                      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                        <div style={{ width: "13px", height: "13px", borderRadius: "50%", background: "#2a2a2a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "7px", fontWeight: 700, color: "#c8f135" }}>
+                          {mkInitials(conv.agent.display_name ?? "?")}
                         </div>
                         <span style={{ fontSize: "9px", color: "#555" }}>{conv.agent.display_name}</span>
-                      </>
+                      </div>
                     ) : (
                       <span style={{ fontSize: "9px", color: "#c8541a", background: "#c8541a15", padding: "1px 6px", borderRadius: "20px", border: "1px solid #c8541a20" }}>Sin asignar</span>
                     )}
@@ -485,46 +417,60 @@ export default function InboxPage() {
         </div>
       </div>
 
-      {/* Panel chat */}
-      {selected ? (
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100%", minWidth: 0 }}>
+      {/* Columna 2 — info del contacto (visible al seleccionar chat) */}
+      {selected && showContactPanel && (
+        <div style={{ width: "240px", flexShrink: 0, display: "flex", flexDirection: "column", height: "100%", background: "#0d0d0d", borderRight: "1px solid #1a1a1a" }}>
 
           {/* Header */}
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "16px 24px", background: "#0d0d0d", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
-            <div style={{ position: "relative" }}>
-              <div style={{ width: "36px", height: "36px", borderRadius: "50%", background: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: "#f0f0f0" }}>
-                {initials(contactName(selected))}
-              </div>
-              <div style={{ position: "absolute", bottom: "-2px", right: "-4px" }}>
-                <ChannelIcon channel={selected.channel} size={9} />
-              </div>
-            </div>
-            <div style={{ flex: 1 }}>
-              <p
-                onClick={() => openContactPanel(selected)}
-                style={{ fontSize: "13px", fontWeight: 700, color: "#f0f0f0", margin: 0, cursor: "pointer", display: "inline-block" }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = "var(--accent)"}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = "#f0f0f0"}
-              >
-                {contactName(selected)}
-              </p>
-              <p style={{ fontSize: "10px", color: "#444", margin: "2px 0 0" }}>
-                vía {selected.channel.charAt(0).toUpperCase() + selected.channel.slice(1)}
-              </p>
-            </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
+            <span style={{ fontSize: "11px", fontWeight: 700, color: "#888", textTransform: "uppercase", letterSpacing: "0.08em" }}>Contacto</span>
+            <button onClick={() => setShowContactPanel(false)}
+              style={{ width: "22px", height: "22px", borderRadius: "5px", background: "transparent", border: "1px solid #1e1e1e", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#444", padding: 0, transition: "all 0.1s" }}
+              onMouseEnter={e => { (e.currentTarget).style.background = "#1a1a1a"; (e.currentTarget).style.color = "#f0f0f0"; }}
+              onMouseLeave={e => { (e.currentTarget).style.background = "transparent"; (e.currentTarget).style.color = "#444"; }}
+            >
+              <X size={11} />
+            </button>
+          </div>
 
-            {/* Asignar agente */}
-            <div ref={dropdownRef} style={{ position: "relative" }}>
+          {/* Avatar */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "20px 16px 16px", borderBottom: "1px solid #1a1a1a" }}>
+            <div style={{ width: "48px", height: "48px", borderRadius: "50%", background: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "15px", fontWeight: 700, color: "#f0f0f0", marginBottom: "8px" }}>
+              {mkInitials(contactName(selected))}
+            </div>
+            <p style={{ fontSize: "13px", fontWeight: 700, color: "#f0f0f0", margin: "0 0 2px", textAlign: "center" }}>{contactName(selected)}</p>
+            <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+              <ChannelIcon channel={selected.channel} size={9} />
+              <span style={{ fontSize: "10px", color: "#555" }}>{selected.channel.charAt(0).toUpperCase() + selected.channel.slice(1)}</span>
+            </div>
+          </div>
+
+          {/* Campos editables */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              <ContactField label="Nombre" value={selected.contacts?.name ?? ""} onSave={v => saveContactField("name", v)} />
+              <ContactField label="Teléfono" value={selected.contacts?.phone ?? ""} onSave={v => saveContactField("phone", v)} />
+              <ContactField label="Email" value={selected.contacts?.email ?? ""} onSave={v => saveContactField("email", v)} />
+            </div>
+          </div>
+
+          {/* Asignar agente */}
+          <div style={{ padding: "12px 16px", borderTop: "1px solid #1a1a1a", flexShrink: 0 }} ref={dropdownRef}>
+            <p style={{ fontSize: "10px", color: "#444", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", margin: "0 0 6px" }}>Asignado a</p>
+            <div style={{ position: "relative" }}>
               <button onClick={() => setShowAssignDropdown(v => !v)}
-                style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 10px", borderRadius: "8px", background: "transparent", border: "1px solid #1e1e1e", cursor: "pointer" }}>
+                style={{ width: "100%", display: "flex", alignItems: "center", gap: "6px", padding: "7px 10px", borderRadius: "8px", background: "#111", border: "1px solid #1e1e1e", cursor: "pointer", transition: "border-color 0.1s" }}
+                onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = "#2a2a2a"}
+                onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = "#1e1e1e"}
+              >
                 <UserCheck size={12} color={selected.agent ? "#c8f135" : "#555"} />
-                <span style={{ fontSize: "11px", color: selected.agent ? "#c8f135" : "#555", maxWidth: "90px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <span style={{ flex: 1, fontSize: "11px", color: selected.agent ? "#c8f135" : "#555", textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {selected.agent?.display_name ?? "Sin asignar"}
                 </span>
                 <ChevronDown size={10} color="#444" />
               </button>
               {showAssignDropdown && (
-                <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, background: "#161616", border: "1px solid #222", borderRadius: "10px", padding: "4px", minWidth: "170px", zIndex: 50 }}>
+                <div style={{ position: "absolute", bottom: "calc(100% + 4px)", left: 0, right: 0, background: "#161616", border: "1px solid #222", borderRadius: "10px", padding: "4px", zIndex: 50 }}>
                   <button onClick={() => assignConversation(null)}
                     style={{ width: "100%", padding: "7px 10px", borderRadius: "7px", background: "transparent", border: "none", color: "#c8541a", fontSize: "11px", cursor: "pointer", textAlign: "left" }}>
                     Sin asignar
@@ -532,8 +478,8 @@ export default function InboxPage() {
                   {agents.map(a => (
                     <button key={a.id} onClick={() => assignConversation(a.id)}
                       style={{ width: "100%", padding: "7px 10px", borderRadius: "7px", background: selected.agent?.id === a.id ? "#1e1e1e" : "transparent", border: "none", color: "#f0f0f0", fontSize: "11px", cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: "8px" }}>
-                      <div style={{ width: "18px", height: "18px", borderRadius: "50%", background: "#2a2a2a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "8px", fontWeight: 700, color: "#c8f135", flexShrink: 0 }}>
-                        {initials(a.display_name ?? "?")}
+                      <div style={{ width: "17px", height: "17px", borderRadius: "50%", background: "#2a2a2a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "7px", fontWeight: 700, color: "#c8f135", flexShrink: 0 }}>
+                        {mkInitials(a.display_name ?? "?")}
                       </div>
                       {a.display_name ?? a.id.slice(0, 8)}
                     </button>
@@ -541,14 +487,44 @@ export default function InboxPage() {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
 
-            <button style={{ width: "32px", height: "32px", borderRadius: "8px", background: "transparent", border: "1px solid #1e1e1e", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-              <MoreVertical size={14} color="#444" />
-            </button>
+      {/* Columna 3 — conversación */}
+      {selected ? (
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100%", minWidth: 0 }}>
+
+          {/* Header chat */}
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "14px 20px", background: "#0d0d0d", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
+            {!showContactPanel && (
+              <button onClick={() => setShowContactPanel(true)}
+                style={{ width: "32px", height: "32px", borderRadius: "8px", background: "transparent", border: "1px solid #1e1e1e", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}
+                title="Ver contacto"
+              >
+                <UserCheck size={13} color="#555" />
+              </button>
+            )}
+            <div style={{ position: "relative", flexShrink: 0 }}>
+              <div style={{ width: "32px", height: "32px", borderRadius: "50%", background: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: "#f0f0f0" }}>
+                {mkInitials(contactName(selected))}
+              </div>
+              <div style={{ position: "absolute", bottom: "-2px", right: "-4px" }}>
+                <ChannelIcon channel={selected.channel} size={8} />
+              </div>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: "13px", fontWeight: 700, color: "#f0f0f0", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {contactName(selected)}
+              </p>
+              <p style={{ fontSize: "10px", color: "#444", margin: "1px 0 0" }}>
+                vía {selected.channel.charAt(0).toUpperCase() + selected.channel.slice(1)}
+              </p>
+            </div>
           </div>
 
           {/* Timeline */}
-          <div style={{ flex: 1, overflowY: "auto", padding: "24px", display: "flex", flexDirection: "column", gap: "10px" }}>
+          <div style={{ flex: 1, overflowY: "auto", padding: "20px", display: "flex", flexDirection: "column", gap: "10px" }}>
             {timeline.map(item => {
               if (item.type === "activity") {
                 return (
@@ -561,27 +537,16 @@ export default function InboxPage() {
                   </div>
                 );
               }
-
               const msg = item.data;
               const isMe = msg.from_type === "me";
               return (
                 <div key={msg.id} style={{ display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start" }}>
                   {isMe && msg.sender?.display_name && (
-                    <span style={{ fontSize: "10px", color: "#555", marginBottom: "3px", paddingRight: "4px" }}>
-                      {msg.sender.display_name}
-                    </span>
+                    <span style={{ fontSize: "10px", color: "#555", marginBottom: "3px", paddingRight: "4px" }}>{msg.sender.display_name}</span>
                   )}
-                  <div style={{
-                    maxWidth: "60%",
-                    padding: msg.media_type === "image" ? "6px" : "10px 14px",
-                    background: isMe ? "var(--accent)" : "#161616",
-                    borderRadius: isMe ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
-                    fontSize: "13px",
-                    lineHeight: "1.5",
-                    overflow: "hidden",
-                  }}>
+                  <div style={{ maxWidth: "65%", padding: msg.media_type === "image" ? "6px" : "10px 14px", background: isMe ? "var(--accent)" : "#161616", borderRadius: isMe ? "16px 16px 4px 16px" : "16px 16px 16px 4px", fontSize: "13px", lineHeight: "1.5", overflow: "hidden" }}>
                     <MessageContent msg={msg} />
-                    <p style={{ margin: "4px 0 0", fontSize: "10px", opacity: 0.5, textAlign: "right", color: isMe ? "#0a0a0a" : "#f0f0f0", paddingRight: msg.media_type === "image" ? "6px" : 0 }}>
+                    <p style={{ margin: "4px 0 0", fontSize: "10px", opacity: 0.5, textAlign: "right", color: isMe ? "#0a0a0a" : "#f0f0f0" }}>
                       {fmtTime(msg.created_at)}
                     </p>
                   </div>
@@ -592,78 +557,29 @@ export default function InboxPage() {
           </div>
 
           {/* Input */}
-          <div style={{ padding: "16px 24px", background: "#0d0d0d", borderTop: "1px solid #1a1a1a", flexShrink: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", background: "#111", border: `1px solid ${sending ? "var(--accent)" : "#1e1e1e"}`, borderRadius: "14px", transition: "border-color 0.2s ease" }}>
-              <Paperclip size={15} color="#333" style={{ cursor: "pointer" }} />
+          <div style={{ padding: "14px 20px", background: "#0d0d0d", borderTop: "1px solid #1a1a1a", flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", background: "#111", border: `1px solid ${sending ? "var(--accent)" : "#1e1e1e"}`, borderRadius: "14px", transition: "border-color 0.2s" }}>
+              <Paperclip size={14} color="#333" style={{ cursor: "pointer", flexShrink: 0 }} />
               <input type="text" placeholder={sending ? "Enviando..." : "Escribí un mensaje..."} value={newMessage}
                 onChange={e => setNewMessage(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
                 disabled={sending}
                 style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: sending ? "#666" : "#f0f0f0", fontSize: "13px" }} />
-              <Smile size={15} color="#333" style={{ cursor: "pointer" }} />
+              <Smile size={14} color="#333" style={{ cursor: "pointer", flexShrink: 0 }} />
               <button onClick={sendMessage} disabled={sending || !newMessage.trim()}
-                style={{ width: "30px", height: "30px", borderRadius: "8px", border: "none", background: newMessage.trim() && !sending ? "var(--accent)" : "#1e1e1e", display: "flex", alignItems: "center", justifyContent: "center", cursor: sending ? "not-allowed" : "pointer", transition: "all 0.15s ease" }}>
+                style={{ width: "30px", height: "30px", borderRadius: "8px", border: "none", background: newMessage.trim() && !sending ? "var(--accent)" : "#1e1e1e", display: "flex", alignItems: "center", justifyContent: "center", cursor: sending ? "not-allowed" : "pointer", transition: "all 0.15s", flexShrink: 0 }}>
                 {sending
                   ? <div style={{ width: "13px", height: "13px", border: "2px solid #333", borderTopColor: "var(--accent)", borderRadius: "50%", animation: "spin 0.6s linear infinite" }} />
                   : <Send size={13} color={newMessage.trim() ? "#0a0a0a" : "#444"} />
                 }
               </button>
             </div>
-            {sending && (
-              <p style={{ fontSize: "10px", color: "var(--accent)", margin: "6px 0 0 4px" }}>Enviando mensaje...</p>
-            )}
+            {sending && <p style={{ fontSize: "10px", color: "var(--accent)", margin: "5px 0 0 4px" }}>Enviando...</p>}
           </div>
         </div>
       ) : (
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <p style={{ fontSize: "13px", color: "#333" }}>Seleccioná una conversación</p>
-        </div>
-      )}
-
-      {/* Panel contacto */}
-      {contactPanel && (
-        <div style={{ width: "300px", flexShrink: 0, display: "flex", flexDirection: "column", height: "100%", background: "#0d0d0d", borderLeft: "1px solid #1a1a1a" }}>
-
-          {/* Header */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
-            <span style={{ fontSize: "12px", fontWeight: 700, color: "#f0f0f0" }}>Contacto</span>
-            <button onClick={closeContactPanel}
-              style={{ width: "26px", height: "26px", borderRadius: "6px", background: "transparent", border: "1px solid #1e1e1e", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#444", transition: "all 0.1s ease", padding: 0 }}
-              onMouseEnter={e => { (e.currentTarget).style.background = "#1a1a1a"; (e.currentTarget).style.color = "#f0f0f0"; }}
-              onMouseLeave={e => { (e.currentTarget).style.background = "transparent"; (e.currentTarget).style.color = "#444"; }}
-            >
-              <X size={12} />
-            </button>
-          </div>
-
-          {/* Avatar + nombre */}
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "28px 20px 20px", borderBottom: "1px solid #1a1a1a" }}>
-            <div style={{ width: "52px", height: "52px", borderRadius: "50%", background: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", fontWeight: 700, color: "#f0f0f0", marginBottom: "10px" }}>
-              {initials(contactPanel.name)}
-            </div>
-            <p style={{ fontSize: "14px", fontWeight: 700, color: "#f0f0f0", margin: 0, textAlign: "center" }}>{contactPanel.name}</p>
-          </div>
-
-          {/* Campos editables */}
-          <div style={{ flex: 1, overflowY: "auto", padding: "20px" }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
-              <ContactField
-                label="Nombre"
-                value={contactPanel.name}
-                onSave={v => saveContactField("name", v)}
-              />
-              <ContactField
-                label="Teléfono"
-                value={contactPanel.phone ?? ""}
-                onSave={v => saveContactField("phone", v)}
-              />
-              <ContactField
-                label="Email"
-                value={contactPanel.email ?? ""}
-                onSave={v => saveContactField("email", v)}
-              />
-            </div>
-          </div>
         </div>
       )}
     </div>
