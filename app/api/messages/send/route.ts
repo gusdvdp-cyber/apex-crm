@@ -69,6 +69,19 @@ export async function POST(req: NextRequest) {
       }
 
       const result = await evoRes.json();
+
+      await supabase.from("messages").insert({
+        conversation_id,
+        external_id: result.key?.id ?? null,
+        text: content,
+        from_type: "me",
+      });
+
+      await supabase.from("conversations").update({
+        last_message: content,
+        updated_at: new Date().toISOString(),
+      }).eq("id", conversation_id);
+
       return NextResponse.json({ ok: true, message_id: result.key?.id });
     }
 
@@ -102,6 +115,19 @@ export async function POST(req: NextRequest) {
     }
 
     const result = await chatwootRes.json();
+
+    await supabase.from("messages").insert({
+      conversation_id,
+      external_id: String(result.id) ?? null,
+      text: content,
+      from_type: "me",
+    });
+
+    await supabase.from("conversations").update({
+      last_message: content,
+      updated_at: new Date().toISOString(),
+    }).eq("id", conversation_id);
+
     return NextResponse.json({ ok: true, message_id: result.id });
 
   } catch (err) {
