@@ -6,6 +6,7 @@ import { Save, User, Mail, Lock, Check } from "lucide-react";
 
 interface Profile {
   full_name: string | null;
+  display_name: string | null;
   avatar_url: string | null;
   role: string;
   organization_id: string;
@@ -33,13 +34,13 @@ export default function PerfilPage() {
 
     const { data } = await supabase
       .from("profiles")
-      .select("full_name, avatar_url, role, organization_id")
+      .select("full_name, display_name, avatar_url, role, organization_id")
       .eq("id", user.id)
       .single();
 
     if (data) {
       setProfile(data);
-      setForm({ full_name: data.full_name ?? "" });
+      setForm({ full_name: data.display_name ?? data.full_name ?? "" });
     }
     setLoading(false);
   };
@@ -49,7 +50,7 @@ export default function PerfilPage() {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    await supabase.from("profiles").update({ full_name: form.full_name }).eq("id", user.id);
+    await supabase.from("profiles").update({ full_name: form.full_name, display_name: form.full_name }).eq("id", user.id);
     setSavingInfo(false);
     setSavedInfo(true);
     setTimeout(() => setSavedInfo(false), 2000);
