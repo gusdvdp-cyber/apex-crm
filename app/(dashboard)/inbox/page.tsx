@@ -3,12 +3,19 @@
 import { useEffect, useState, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
-  Search, Filter, MessageCircle, Mail, MoreVertical,
-  Send, Paperclip, Smile, Phone, Video,
+  Search, MessageCircle, Mail, MoreVertical,
+  Send, Paperclip, Smile, UserCheck, Activity, ChevronDown,
 } from "lucide-react";
 
 type Channel = "whatsapp" | "instagram" | "messenger" | "gmail" | "outlook";
 type Tab = "social" | "email";
+type ConvFilter = "all" | "mine" | "unassigned" | "new";
+
+interface AgentProfile {
+  id: string;
+  display_name: string | null;
+  avatar_url: string | null;
+}
 
 interface Message {
   id: string;
@@ -18,7 +25,21 @@ interface Message {
   external_id: string | null;
   media_url?: string | null;
   media_type?: string | null;
+  sent_by?: string | null;
+  sender?: AgentProfile | null;
 }
+
+interface ActivityEntry {
+  id: string;
+  action_type: string;
+  description: string;
+  performer?: AgentProfile | null;
+  created_at: string;
+}
+
+type TimelineItem =
+  | { type: "message"; ts: string; data: Message }
+  | { type: "activity"; ts: string; data: ActivityEntry };
 
 interface Conversation {
   id: string;
@@ -28,11 +49,19 @@ interface Conversation {
   is_online: boolean;
   updated_at: string;
   external_id: string | null;
+  assigned_to: string | null;
   contacts?: { name: string; phone: string | null; email: string | null } | null;
+  agent?: AgentProfile | null;
 }
 
 const SOCIAL_CHANNELS: Channel[] = ["whatsapp", "instagram", "messenger"];
 const EMAIL_CHANNELS: Channel[] = ["gmail", "outlook"];
+const CONV_FILTERS: { key: ConvFilter; label: string }[] = [
+  { key: "all", label: "Todos" },
+  { key: "mine", label: "Míos" },
+  { key: "unassigned", label: "Sin asignar" },
+  { key: "new", label: "Nuevos" },
+];
 
 function ChannelIcon({ channel, size = 12 }: { channel: Channel; size?: number }) {
   const configs: Record<Channel, { bg: string; svg: React.ReactNode }> = {
@@ -57,11 +86,7 @@ function MessageContent({ msg }: { msg: Message }) {
   if (msg.media_type === "image" && msg.media_url) {
     return (
       <>
-        <img
-          src={msg.media_url}
-          alt="imagen"
-          style={{ maxWidth: "100%", borderRadius: "8px", display: "block" }}
-        />
+        <img src={msg.media_url} alt="imagen" style={{ maxWidth: "100%", borderRadius: "8px", display: "block" }} />
         {msg.text && msg.text !== "[imagen]" && (
           <p style={{ margin: "6px 0 0", color }}>{msg.text}</p>
         )}
@@ -70,19 +95,13 @@ function MessageContent({ msg }: { msg: Message }) {
   }
 
   if (msg.media_type === "audio" && msg.media_url) {
-    return (
-      <audio
-        controls
-        src={msg.media_url}
-        style={{ width: "100%", minWidth: "200px" }}
-      />
-    );
+    return <audio controls src={msg.media_url} style={{ width: "100%", minWidth: "200px" }} />;
   }
 
   return <p style={{ margin: 0, color }}>{msg.text}</p>;
 }
 
-const initials = (name: string) => name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase();
+const initials = (name: string) => name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
 const fmtTime = (iso: string) => {
   const d = new Date(iso);
   const now = new Date();
@@ -94,85 +113,120 @@ const fmtTime = (iso: string) => {
 
 export default function InboxPage() {
   const [orgId, setOrgId] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [selected, setSelected] = useState<Conversation | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("social");
+  const [convFilter, setConvFilter] = useState<ConvFilter>("all");
   const [search, setSearch] = useState("");
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [agents, setAgents] = useState<AgentProfile[]>([]);
+  const [showAssignDropdown, setShowAssignDropdown] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { init(); }, []);
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [timeline]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    const handleClick = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowAssignDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   const init = async () => {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
+    setCurrentUserId(user.id);
     const { data: profile } = await supabase.from("profiles").select("organization_id").eq("id", user.id).single();
     if (!profile) return;
     setOrgId(profile.organization_id);
-    await fetchConversations(profile.organization_id);
+    await Promise.all([
+      fetchConversations(profile.organization_id),
+      fetchAgents(profile.organization_id),
+    ]);
     setupRealtime(profile.organization_id);
     setLoading(false);
+  };
+
+  const fetchAgents = async (oid: string) => {
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, display_name, avatar_url")
+      .eq("organization_id", oid);
+    setAgents((data as AgentProfile[]) ?? []);
   };
 
   const fetchConversations = async (oid: string) => {
     const supabase = createClient();
     const { data } = await supabase
       .from("conversations")
-      .select("*, contacts(name, phone, email)")
+      .select("*, contacts(name, phone, email), agent:profiles!assigned_to(id, display_name, avatar_url)")
       .eq("organization_id", oid)
       .order("updated_at", { ascending: false });
     const convs = (data as Conversation[]) ?? [];
     setConversations(convs);
     if (convs.length > 0 && !selected) {
       setSelected(convs[0]);
-      fetchMessages(convs[0].id);
+      fetchTimeline(convs[0].id);
     }
   };
 
-  const fetchMessages = async (convId: string) => {
+  const fetchTimeline = async (convId: string) => {
     const supabase = createClient();
-    const { data } = await supabase
-      .from("messages")
-      .select("*")
-      .eq("conversation_id", convId)
-      .order("created_at", { ascending: true });
-    setMessages((data as Message[]) ?? []);
+    const [{ data: msgs }, { data: logs }] = await Promise.all([
+      supabase
+        .from("messages")
+        .select("*, sender:profiles!sent_by(id, display_name, avatar_url)")
+        .eq("conversation_id", convId)
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("activity_log")
+        .select("*, performer:profiles!performed_by(id, display_name, avatar_url)")
+        .eq("conversation_id", convId)
+        .order("created_at", { ascending: true }),
+    ]);
+    const items: TimelineItem[] = [
+      ...(msgs ?? []).map(m => ({ type: "message" as const, ts: m.created_at, data: m as Message })),
+      ...(logs ?? []).map(l => ({ type: "activity" as const, ts: l.created_at, data: l as ActivityEntry })),
+    ].sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
+    setTimeline(items);
   };
 
   const setupRealtime = (oid: string) => {
     const supabase = createClient();
 
-    supabase
-      .channel("inbox-messages")
-      .on("postgres_changes", {
-        event: "INSERT",
-        schema: "public",
-        table: "messages",
-      }, (payload) => {
-        const newMsg = payload.new as Message;
-        setMessages((prev) => {
-          if (prev.find((m) => m.id === newMsg.id)) return prev;
-          return [...prev, newMsg];
+    supabase.channel("inbox-messages")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
+        const msg = payload.new as Message;
+        setTimeline(prev => {
+          if (prev.find(i => i.type === "message" && i.data.id === msg.id)) return prev;
+          return [...prev, { type: "message", ts: msg.created_at, data: msg }];
         });
       })
       .subscribe();
 
-    supabase
-      .channel("inbox-conversations")
-      .on("postgres_changes", {
-        event: "*",
-        schema: "public",
-        table: "conversations",
-        filter: `organization_id=eq.${oid}`,
-      }, () => {
+    supabase.channel("inbox-activity")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "activity_log" }, (payload) => {
+        const log = payload.new as ActivityEntry;
+        setTimeline(prev => {
+          if (prev.find(i => i.type === "activity" && i.data.id === log.id)) return prev;
+          return [...prev, { type: "activity", ts: log.created_at, data: log }];
+        });
+      })
+      .subscribe();
+
+    supabase.channel("inbox-conversations")
+      .on("postgres_changes", { event: "*", schema: "public", table: "conversations", filter: `organization_id=eq.${oid}` }, () => {
         fetchConversations(oid);
       })
       .subscribe();
@@ -180,38 +234,63 @@ export default function InboxPage() {
 
   const selectConversation = (conv: Conversation) => {
     setSelected(conv);
-    fetchMessages(conv.id);
+    setShowAssignDropdown(false);
+    fetchTimeline(conv.id);
     const supabase = createClient();
     supabase.from("conversations").update({ unread_count: 0 }).eq("id", conv.id);
-    setConversations((prev) => prev.map((c) => c.id === conv.id ? { ...c, unread_count: 0 } : c));
+    setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, unread_count: 0 } : c));
+  };
+
+  const assignConversation = async (agentId: string | null) => {
+    if (!selected || !orgId || !currentUserId) return;
+    const supabase = createClient();
+    const agent = agents.find(a => a.id === agentId) ?? null;
+    const desc = agentId
+      ? `Conversación asignada a ${agent?.display_name ?? "agente"}`
+      : "Conversación desasignada";
+
+    await Promise.all([
+      supabase.from("conversations").update({ assigned_to: agentId }).eq("id", selected.id),
+      supabase.from("activity_log").insert({
+        organization_id: orgId,
+        conversation_id: selected.id,
+        performed_by: currentUserId,
+        action_type: "conversation_assigned",
+        description: desc,
+      }),
+    ]);
+
+    setSelected(prev => prev ? { ...prev, assigned_to: agentId, agent } : prev);
+    setConversations(prev => prev.map(c => c.id === selected.id ? { ...c, assigned_to: agentId, agent } : c));
+    setShowAssignDropdown(false);
+    fetchTimeline(selected.id);
   };
 
   const sendMessage = async () => {
     if (!newMessage.trim() || !selected || sending) return;
     setSending(true);
-
     const res = await fetch("/api/messages/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        conversation_id: selected.id,
-        content: newMessage,
-      }),
+      body: JSON.stringify({ conversation_id: selected.id, content: newMessage }),
     });
-
     if (res.ok) {
       setNewMessage("");
-      fetchMessages(selected.id);
+      fetchTimeline(selected.id);
+      fetchConversations(orgId!);
     }
     setSending(false);
   };
 
-  const filtered = conversations.filter((c) => {
+  const filtered = conversations.filter(c => {
     const channels = activeTab === "social" ? SOCIAL_CHANNELS : EMAIL_CHANNELS;
-    const matchChannel = channels.includes(c.channel);
+    if (!channels.includes(c.channel)) return false;
     const name = c.contacts?.name ?? c.external_id ?? "";
-    const matchSearch = name.toLowerCase().includes(search.toLowerCase());
-    return matchChannel && matchSearch;
+    if (!name.toLowerCase().includes(search.toLowerCase())) return false;
+    if (convFilter === "mine") return c.assigned_to === currentUserId;
+    if (convFilter === "unassigned") return c.assigned_to === null;
+    if (convFilter === "new") return c.unread_count > 0;
+    return true;
   });
 
   const contactName = (conv: Conversation) => conv.contacts?.name ?? conv.external_id?.split("_").pop() ?? "Desconocido";
@@ -228,15 +307,11 @@ export default function InboxPage() {
       {/* Panel izquierdo */}
       <div style={{ width: "300px", flexShrink: 0, display: "flex", flexDirection: "column", height: "100%", background: "#0d0d0d", borderRight: "1px solid #1a1a1a" }}>
         <div style={{ padding: "24px 16px 12px" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
-            <h1 style={{ fontSize: "16px", fontWeight: 700, color: "#f0f0f0", margin: 0 }}>Inbox</h1>
-            <button style={{ width: "28px", height: "28px", borderRadius: "8px", background: "#161616", border: "1px solid #1e1e1e", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-              <Filter size={13} color="#444" />
-            </button>
-          </div>
+          <h1 style={{ fontSize: "16px", fontWeight: 700, color: "#f0f0f0", margin: "0 0 16px" }}>Inbox</h1>
 
-          <div style={{ display: "flex", background: "#111", borderRadius: "10px", padding: "3px", gap: "3px", marginBottom: "12px" }}>
-            {(["social", "email"] as Tab[]).map((tab) => (
+          {/* Social / Email */}
+          <div style={{ display: "flex", background: "#111", borderRadius: "10px", padding: "3px", gap: "3px", marginBottom: "10px" }}>
+            {(["social", "email"] as Tab[]).map(tab => (
               <button key={tab} onClick={() => setActiveTab(tab)}
                 style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", padding: "6px", borderRadius: "8px", border: "none", cursor: "pointer", fontSize: "11px", fontWeight: 600, background: activeTab === tab ? "#1e1e1e" : "transparent", color: activeTab === tab ? "#f0f0f0" : "#444", transition: "all 0.15s ease" }}>
                 {tab === "social" ? <MessageCircle size={12} /> : <Mail size={12} />}
@@ -245,27 +320,38 @@ export default function InboxPage() {
             ))}
           </div>
 
+          {/* Filtros */}
+          <div style={{ display: "flex", gap: "4px", marginBottom: "10px", flexWrap: "wrap" }}>
+            {CONV_FILTERS.map(f => (
+              <button key={f.key} onClick={() => setConvFilter(f.key)}
+                style={{ padding: "3px 10px", borderRadius: "20px", border: "1px solid", borderColor: convFilter === f.key ? "#c8f13540" : "#1e1e1e", background: convFilter === f.key ? "#c8f13510" : "transparent", color: convFilter === f.key ? "#c8f135" : "#444", fontSize: "10px", fontWeight: 600, cursor: "pointer" }}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Buscar */}
           <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
             <Search size={13} color="#333" style={{ position: "absolute", left: "10px" }} />
-            <input type="text" placeholder="Buscar..." value={search} onChange={(e) => setSearch(e.target.value)}
+            <input type="text" placeholder="Buscar..." value={search} onChange={e => setSearch(e.target.value)}
               style={{ width: "100%", padding: "8px 10px 8px 32px", background: "#111", border: "1px solid #1e1e1e", borderRadius: "8px", color: "#f0f0f0", fontSize: "12px", outline: "none" }} />
           </div>
         </div>
 
+        {/* Lista */}
         <div style={{ flex: 1, overflowY: "auto", padding: "4px 8px 8px" }}>
           {filtered.length === 0 && (
-            <p style={{ textAlign: "center", color: "#333", fontSize: "12px", padding: "40px 0" }}>
-              Sin conversaciones
-            </p>
+            <p style={{ textAlign: "center", color: "#333", fontSize: "12px", padding: "40px 0" }}>Sin conversaciones</p>
           )}
-          {filtered.map((conv) => {
+          {filtered.map(conv => {
             const isSelected = conv.id === selected?.id;
+            const isMine = conv.assigned_to === currentUserId;
             const name = contactName(conv);
             return (
               <button key={conv.id} onClick={() => selectConversation(conv)}
-                style={{ width: "100%", display: "flex", alignItems: "flex-start", gap: "10px", padding: "10px", borderRadius: "10px", border: isSelected ? "1px solid #c8f13520" : "1px solid transparent", background: isSelected ? "#c8f13508" : "transparent", cursor: "pointer", textAlign: "left", marginBottom: "2px", transition: "all 0.1s ease" }}
-                onMouseEnter={(e) => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = "#141414"; }}
-                onMouseLeave={(e) => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                style={{ width: "100%", display: "flex", alignItems: "flex-start", gap: "10px", padding: "10px", borderRadius: "10px", border: isSelected ? "1px solid #c8f13520" : isMine ? "1px solid #c8f13512" : "1px solid transparent", background: isSelected ? "#c8f13508" : isMine ? "#c8f1350a" : "transparent", cursor: "pointer", textAlign: "left", marginBottom: "2px", transition: "all 0.1s ease" }}
+                onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = "#141414"; }}
+                onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = isMine ? "#c8f1350a" : "transparent"; }}
               >
                 <div style={{ position: "relative", flexShrink: 0 }}>
                   <div style={{ width: "36px", height: "36px", borderRadius: "50%", background: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: "#f0f0f0" }}>
@@ -293,6 +379,18 @@ export default function InboxPage() {
                       </span>
                     )}
                   </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "4px", marginTop: "5px" }}>
+                    {conv.agent ? (
+                      <>
+                        <div style={{ width: "14px", height: "14px", borderRadius: "50%", background: "#2a2a2a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "7px", fontWeight: 700, color: "#c8f135" }}>
+                          {initials(conv.agent.display_name ?? "?")}
+                        </div>
+                        <span style={{ fontSize: "9px", color: "#555" }}>{conv.agent.display_name}</span>
+                      </>
+                    ) : (
+                      <span style={{ fontSize: "9px", color: "#c8541a", background: "#c8541a15", padding: "1px 6px", borderRadius: "20px", border: "1px solid #c8541a20" }}>Sin asignar</span>
+                    )}
+                  </div>
                 </div>
               </button>
             );
@@ -303,6 +401,8 @@ export default function InboxPage() {
       {/* Panel chat */}
       {selected ? (
         <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100%" }}>
+
+          {/* Header */}
           <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "16px 24px", background: "#0d0d0d", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
             <div style={{ position: "relative" }}>
               <div style={{ width: "36px", height: "36px", borderRadius: "50%", background: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: "#f0f0f0" }}>
@@ -318,43 +418,92 @@ export default function InboxPage() {
                 vía {selected.channel.charAt(0).toUpperCase() + selected.channel.slice(1)}
               </p>
             </div>
-            <div style={{ display: "flex", gap: "4px" }}>
-              {[Phone, Video, MoreVertical].map((Icon, i) => (
-                <button key={i} style={{ width: "32px", height: "32px", borderRadius: "8px", background: "transparent", border: "1px solid #1e1e1e", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-                  <Icon size={14} color="#444" />
-                </button>
-              ))}
+
+            {/* Asignar agente */}
+            <div ref={dropdownRef} style={{ position: "relative" }}>
+              <button onClick={() => setShowAssignDropdown(v => !v)}
+                style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 10px", borderRadius: "8px", background: "transparent", border: "1px solid #1e1e1e", cursor: "pointer" }}>
+                <UserCheck size={12} color={selected.agent ? "#c8f135" : "#555"} />
+                <span style={{ fontSize: "11px", color: selected.agent ? "#c8f135" : "#555", maxWidth: "90px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {selected.agent?.display_name ?? "Sin asignar"}
+                </span>
+                <ChevronDown size={10} color="#444" />
+              </button>
+              {showAssignDropdown && (
+                <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, background: "#161616", border: "1px solid #222", borderRadius: "10px", padding: "4px", minWidth: "170px", zIndex: 50 }}>
+                  <button onClick={() => assignConversation(null)}
+                    style={{ width: "100%", padding: "7px 10px", borderRadius: "7px", background: "transparent", border: "none", color: "#c8541a", fontSize: "11px", cursor: "pointer", textAlign: "left" }}>
+                    Sin asignar
+                  </button>
+                  {agents.map(a => (
+                    <button key={a.id} onClick={() => assignConversation(a.id)}
+                      style={{ width: "100%", padding: "7px 10px", borderRadius: "7px", background: selected.agent?.id === a.id ? "#1e1e1e" : "transparent", border: "none", color: "#f0f0f0", fontSize: "11px", cursor: "pointer", textAlign: "left", display: "flex", alignItems: "center", gap: "8px" }}>
+                      <div style={{ width: "18px", height: "18px", borderRadius: "50%", background: "#2a2a2a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "8px", fontWeight: 700, color: "#c8f135", flexShrink: 0 }}>
+                        {initials(a.display_name ?? "?")}
+                      </div>
+                      {a.display_name ?? a.id.slice(0, 8)}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
+
+            <button style={{ width: "32px", height: "32px", borderRadius: "8px", background: "transparent", border: "1px solid #1e1e1e", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+              <MoreVertical size={14} color="#444" />
+            </button>
           </div>
 
+          {/* Timeline */}
           <div style={{ flex: 1, overflowY: "auto", padding: "24px", display: "flex", flexDirection: "column", gap: "10px" }}>
-            {messages.map((msg) => (
-              <div key={msg.id} style={{ display: "flex", justifyContent: msg.from_type === "me" ? "flex-end" : "flex-start" }}>
-                <div style={{
-                  maxWidth: "60%",
-                  padding: msg.media_type === "image" ? "6px" : "10px 14px",
-                  background: msg.from_type === "me" ? "var(--accent)" : "#161616",
-                  borderRadius: msg.from_type === "me" ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
-                  fontSize: "13px",
-                  lineHeight: "1.5",
-                  overflow: "hidden",
-                }}>
-                  <MessageContent msg={msg} />
-                  <p style={{ margin: "4px 0 0", fontSize: "10px", opacity: 0.5, textAlign: "right", color: msg.from_type === "me" ? "#0a0a0a" : "#f0f0f0", paddingRight: msg.media_type === "image" ? "6px" : 0 }}>
-                    {fmtTime(msg.created_at)}
-                  </p>
+            {timeline.map(item => {
+              if (item.type === "activity") {
+                return (
+                  <div key={item.data.id} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", padding: "4px 0" }}>
+                    <Activity size={10} color="#444" style={{ flexShrink: 0 }} />
+                    <p style={{ margin: 0, fontSize: "11px", color: "#444", textAlign: "center" }}>
+                      {item.data.description}
+                      <span style={{ marginLeft: "5px", color: "#333" }}>· {fmtTime(item.data.created_at)}</span>
+                    </p>
+                  </div>
+                );
+              }
+
+              const msg = item.data;
+              const isMe = msg.from_type === "me";
+              return (
+                <div key={msg.id} style={{ display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start" }}>
+                  {isMe && msg.sender?.display_name && (
+                    <span style={{ fontSize: "10px", color: "#555", marginBottom: "3px", paddingRight: "4px" }}>
+                      {msg.sender.display_name}
+                    </span>
+                  )}
+                  <div style={{
+                    maxWidth: "60%",
+                    padding: msg.media_type === "image" ? "6px" : "10px 14px",
+                    background: isMe ? "var(--accent)" : "#161616",
+                    borderRadius: isMe ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
+                    fontSize: "13px",
+                    lineHeight: "1.5",
+                    overflow: "hidden",
+                  }}>
+                    <MessageContent msg={msg} />
+                    <p style={{ margin: "4px 0 0", fontSize: "10px", opacity: 0.5, textAlign: "right", color: isMe ? "#0a0a0a" : "#f0f0f0", paddingRight: msg.media_type === "image" ? "6px" : 0 }}>
+                      {fmtTime(msg.created_at)}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             <div ref={messagesEndRef} />
           </div>
 
+          {/* Input */}
           <div style={{ padding: "16px 24px", background: "#0d0d0d", borderTop: "1px solid #1a1a1a", flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", background: "#111", border: "1px solid #1e1e1e", borderRadius: "14px" }}>
               <Paperclip size={15} color="#333" style={{ cursor: "pointer" }} />
               <input type="text" placeholder="Escribí un mensaje..." value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                onChange={e => setNewMessage(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
                 style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "#f0f0f0", fontSize: "13px" }} />
               <Smile size={15} color="#333" style={{ cursor: "pointer" }} />
               <button onClick={sendMessage} disabled={sending || !newMessage.trim()}

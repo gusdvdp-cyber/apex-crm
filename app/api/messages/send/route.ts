@@ -29,14 +29,43 @@ export async function POST(req: NextRequest) {
       }
     );
 
+    const { data: { user } } = await supabase.auth.getUser();
+
     const { data: conversation, error: convError } = await supabase
       .from("conversations")
-      .select("external_id, channel")
+      .select("external_id, channel, assigned_to, organization_id")
       .eq("id", conversation_id)
       .single();
 
     if (convError || !conversation) {
       return NextResponse.json({ error: "Conversación no encontrada" }, { status: 404 });
+    }
+
+    // Obtener display_name del agente
+    let agentName = "Agente";
+    if (user?.id) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("display_name")
+        .eq("id", user.id)
+        .single();
+      if (profile?.display_name) agentName = profile.display_name;
+    }
+
+    // Auto-asignar si la conversación no tiene agente
+    if (user?.id && conversation.assigned_to === null) {
+      await Promise.all([
+        supabase.from("conversations")
+          .update({ assigned_to: user.id })
+          .eq("id", conversation_id),
+        supabase.from("activity_log").insert({
+          organization_id: conversation.organization_id,
+          conversation_id,
+          performed_by: user.id,
+          action_type: "conversation_assigned",
+          description: `Conversación asignada a ${agentName}`,
+        }),
+      ]);
     }
 
     // ── WhatsApp via Evolution API ──────────────────────────────
@@ -51,14 +80,8 @@ export async function POST(req: NextRequest) {
         `${EVO_URL}/message/sendText/${EVO_INSTANCE}`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "apikey": EVO_KEY,
-          },
-          body: JSON.stringify({
-            number: phone,
-            text: content,
-          }),
+          headers: { "Content-Type": "application/json", "apikey": EVO_KEY },
+          body: JSON.stringify({ number: phone, text: content }),
         }
       );
 
@@ -75,6 +98,7 @@ export async function POST(req: NextRequest) {
         external_id: result.key?.id ?? null,
         text: content,
         from_type: "me",
+        sent_by: user?.id ?? null,
       });
 
       await supabase.from("conversations").update({
@@ -100,11 +124,7 @@ export async function POST(req: NextRequest) {
           "Content-Type": "application/json",
           "api_access_token": CHATWOOT_TOKEN,
         },
-        body: JSON.stringify({
-          content,
-          message_type: "outgoing",
-          private: false,
-        }),
+        body: JSON.stringify({ content, message_type: "outgoing", private: false }),
       }
     );
 
@@ -121,6 +141,7 @@ export async function POST(req: NextRequest) {
       external_id: String(result.id) ?? null,
       text: content,
       from_type: "me",
+      sent_by: user?.id ?? null,
     });
 
     await supabase.from("conversations").update({
