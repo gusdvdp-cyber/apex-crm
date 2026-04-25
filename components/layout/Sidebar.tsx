@@ -190,7 +190,7 @@ export default function Sidebar({
                 onMouseEnter={(e) => { if (!isActive) { (e.currentTarget as HTMLElement).style.background = "#141414"; (e.currentTarget as HTMLElement).style.color = "#f0f0f0"; } }}
                 onMouseLeave={(e) => { if (!isActive) { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.color = "#444"; } }}
               >
-                <Icon size={15} strokeWidth={isActive ? 2.5 : 2} color={isActive ? "var(--accent)" : "inherit"} style={{ flexShrink: 0 }} />
+                <Icon size={15} strokeWidth={isActive ? 2.5 : 2} color={isActive ? "var(--accent)" : "currentColor"} style={{ flexShrink: 0 }} />
                 <span style={{ ...labelStyle, flex: collapsed ? 0 : 1 }}>{mod.label}</span>
               </Link>
             </NavTooltip>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
   Search, MessageCircle, Mail, Send, Paperclip,
@@ -129,6 +129,20 @@ function ContactField({ label, value, onSave }: { label: string; value: string; 
   );
 }
 
+function ResizeDivider({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => void }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <div
+      onMouseDown={onMouseDown}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{ width: "5px", height: "100%", cursor: "col-resize", flexShrink: 0, display: "flex", justifyContent: "center", position: "relative", zIndex: 2 }}
+    >
+      <div style={{ width: "1px", height: "100%", background: hover ? "#c8f13560" : "#1a1a1a", transition: "background 0.15s" }} />
+    </div>
+  );
+}
+
 const mkInitials = (name: string) => name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
 const fmtTime = (iso: string) => {
   const d = new Date(iso);
@@ -139,6 +153,11 @@ const fmtTime = (iso: string) => {
 };
 
 export default function InboxPage() {
+  const [col1Width, setCol1Width] = useState(280);
+  const [col2Width, setCol2Width] = useState(240);
+  const dragRef = useRef<{ col: 1 | 2; startX: number; startWidth: number } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
   const [orgId, setOrgId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -161,6 +180,33 @@ export default function InboxPage() {
 
   useEffect(() => { init(); }, []);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [timeline]);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!dragRef.current) return;
+      const delta = e.clientX - dragRef.current.startX;
+      if (dragRef.current.col === 1) {
+        setCol1Width(Math.max(180, Math.min(520, dragRef.current.startWidth + delta)));
+      } else {
+        setCol2Width(Math.max(160, Math.min(440, dragRef.current.startWidth + delta)));
+      }
+    };
+    const onUp = () => {
+      if (dragRef.current) { dragRef.current = null; setIsDragging(false); }
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+
+  const startDrag = (e: React.MouseEvent, col: 1 | 2) => {
+    e.preventDefault();
+    dragRef.current = { col, startX: e.clientX, startWidth: col === 1 ? col1Width : col2Width };
+    setIsDragging(true);
+  };
   useEffect(() => {
     const h = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) setShowAssignDropdown(false);
@@ -323,10 +369,10 @@ export default function InboxPage() {
   );
 
   return (
-    <div style={{ display: "flex", height: "100%", overflow: "hidden", background: "#0a0a0a" }}>
+    <div style={{ display: "flex", height: "100%", overflow: "hidden", background: "#0a0a0a", userSelect: isDragging ? "none" : "auto" }}>
 
       {/* Columna 1 — lista de chats */}
-      <div style={{ width: "280px", flexShrink: 0, display: "flex", flexDirection: "column", height: "100%", background: "#0d0d0d", borderRight: "1px solid #1a1a1a" }}>
+      <div style={{ width: col1Width, flexShrink: 0, display: "flex", flexDirection: "column", height: "100%", background: "#0d0d0d" }}>
         <div style={{ padding: "20px 16px 12px" }}>
           <h1 style={{ fontSize: "15px", fontWeight: 700, color: "#f0f0f0", margin: "0 0 14px" }}>Inbox</h1>
 
@@ -417,9 +463,11 @@ export default function InboxPage() {
         </div>
       </div>
 
+      <ResizeDivider onMouseDown={e => startDrag(e, 1)} />
+
       {/* Columna 2 — info del contacto (visible al seleccionar chat) */}
       {selected && showContactPanel && (
-        <div style={{ width: "240px", flexShrink: 0, display: "flex", flexDirection: "column", height: "100%", background: "#0d0d0d", borderRight: "1px solid #1a1a1a" }}>
+        <div style={{ width: col2Width, flexShrink: 0, display: "flex", flexDirection: "column", height: "100%", background: "#0d0d0d" }}>
 
           {/* Header */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
@@ -490,6 +538,8 @@ export default function InboxPage() {
           </div>
         </div>
       )}
+
+      {selected && showContactPanel && <ResizeDivider onMouseDown={e => startDrag(e, 2)} />}
 
       {/* Columna 3 — conversación */}
       {selected ? (
