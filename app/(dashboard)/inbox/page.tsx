@@ -499,18 +499,25 @@ export default function InboxPage() {
 
           {/* Input */}
           <div style={{ padding: "16px 24px", background: "#0d0d0d", borderTop: "1px solid #1a1a1a", flexShrink: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", background: "#111", border: "1px solid #1e1e1e", borderRadius: "14px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", background: "#111", border: `1px solid ${sending ? "var(--accent)" : "#1e1e1e"}`, borderRadius: "14px", transition: "border-color 0.2s ease" }}>
               <Paperclip size={15} color="#333" style={{ cursor: "pointer" }} />
-              <input type="text" placeholder="Escribí un mensaje..." value={newMessage}
+              <input type="text" placeholder={sending ? "Enviando..." : "Escribí un mensaje..."} value={newMessage}
                 onChange={e => setNewMessage(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-                style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: "#f0f0f0", fontSize: "13px" }} />
+                disabled={sending}
+                style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: sending ? "#666" : "#f0f0f0", fontSize: "13px" }} />
               <Smile size={15} color="#333" style={{ cursor: "pointer" }} />
               <button onClick={sendMessage} disabled={sending || !newMessage.trim()}
-                style={{ width: "30px", height: "30px", borderRadius: "8px", border: "none", background: newMessage.trim() ? "var(--accent)" : "#1e1e1e", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "background 0.15s ease", opacity: sending ? 0.6 : 1 }}>
-                <Send size={13} color={newMessage.trim() ? "#0a0a0a" : "#444"} />
+                style={{ width: "30px", height: "30px", borderRadius: "8px", border: "none", background: newMessage.trim() && !sending ? "var(--accent)" : "#1e1e1e", display: "flex", alignItems: "center", justifyContent: "center", cursor: sending ? "not-allowed" : "pointer", transition: "all 0.15s ease" }}>
+                {sending
+                  ? <div style={{ width: "13px", height: "13px", border: "2px solid #333", borderTopColor: "var(--accent)", borderRadius: "50%", animation: "spin 0.6s linear infinite" }} />
+                  : <Send size={13} color={newMessage.trim() ? "#0a0a0a" : "#444"} />
+                }
               </button>
             </div>
+            {sending && (
+              <p style={{ fontSize: "10px", color: "var(--accent)", margin: "6px 0 0 4px" }}>Enviando mensaje...</p>
+            )}
           </div>
         </div>
       ) : (
