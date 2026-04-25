@@ -4,8 +4,9 @@ import { useEffect, useState, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
   Search, MessageCircle, Mail, MoreVertical,
-  Send, Paperclip, Smile, UserCheck, Activity, ChevronDown,
+  Send, Paperclip, Smile, UserCheck, Activity, ChevronDown, X,
 } from "lucide-react";
+import { useSidebar } from "@/lib/sidebar-context";
 
 type Channel = "whatsapp" | "instagram" | "messenger" | "gmail" | "outlook";
 type Tab = "social" | "email";
@@ -50,8 +51,16 @@ interface Conversation {
   updated_at: string;
   external_id: string | null;
   assigned_to: string | null;
-  contacts?: { name: string; phone: string | null; email: string | null } | null;
+  contacts?: { id: string; name: string; phone: string | null; email: string | null } | null;
   agent?: AgentProfile | null;
+}
+
+interface ContactPanel {
+  contactId: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  conversationId: string;
 }
 
 const SOCIAL_CHANNELS: Channel[] = ["whatsapp", "instagram", "messenger"];
@@ -101,6 +110,43 @@ function MessageContent({ msg }: { msg: Message }) {
   return <p style={{ margin: 0, color }}>{msg.text}</p>;
 }
 
+function ContactField({ label, value, onSave }: { label: string; value: string; onSave: (v: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(value);
+
+  useEffect(() => { setVal(value); }, [value]);
+
+  const save = () => {
+    setEditing(false);
+    if (val !== value) onSave(val);
+  };
+
+  return (
+    <div>
+      <p style={{ fontSize: "10px", color: "#444", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", margin: "0 0 5px" }}>{label}</p>
+      {editing ? (
+        <input
+          autoFocus
+          value={val}
+          onChange={e => setVal(e.target.value)}
+          onBlur={save}
+          onKeyDown={e => { if (e.key === "Enter") save(); if (e.key === "Escape") { setVal(value); setEditing(false); } }}
+          style={{ width: "100%", background: "#111", border: "1px solid var(--accent)", borderRadius: "6px", padding: "7px 10px", color: "#f0f0f0", fontSize: "12px", outline: "none", boxSizing: "border-box" }}
+        />
+      ) : (
+        <div
+          onClick={() => setEditing(true)}
+          style={{ padding: "7px 10px", borderRadius: "6px", background: "#111", border: "1px solid #1a1a1a", cursor: "text", color: val ? "#f0f0f0" : "#333", fontSize: "12px", transition: "border-color 0.1s ease" }}
+          onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = "#2a2a2a"}
+          onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = "#1a1a1a"}
+        >
+          {val || `Agregar ${label.toLowerCase()}...`}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const initials = (name: string) => name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
 const fmtTime = (iso: string) => {
   const d = new Date(iso);
@@ -112,6 +158,7 @@ const fmtTime = (iso: string) => {
 };
 
 export default function InboxPage() {
+  const { setCollapsed } = useSidebar();
   const [orgId, setOrgId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -125,6 +172,7 @@ export default function InboxPage() {
   const [loading, setLoading] = useState(true);
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
+  const [contactPanel, setContactPanel] = useState<ContactPanel | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -170,7 +218,7 @@ export default function InboxPage() {
     const supabase = createClient();
     const { data } = await supabase
       .from("conversations")
-      .select("*, contacts(name, phone, email), agent:profiles!assigned_to(id, display_name, avatar_url)")
+      .select("*, contacts(id, name, phone, email), agent:profiles!assigned_to(id, display_name, avatar_url)")
       .eq("organization_id", oid)
       .order("updated_at", { ascending: false });
     const convs = (data as Conversation[]) ?? [];
@@ -241,6 +289,45 @@ export default function InboxPage() {
     setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, unread_count: 0 } : c));
   };
 
+  const openContactPanel = (conv: Conversation) => {
+    if (!conv.contacts?.id) return;
+    setContactPanel({
+      contactId: conv.contacts.id,
+      name: conv.contacts.name,
+      phone: conv.contacts.phone,
+      email: conv.contacts.email,
+      conversationId: conv.id,
+    });
+    setCollapsed(true);
+  };
+
+  const closeContactPanel = () => {
+    setContactPanel(null);
+    setCollapsed(false);
+  };
+
+  const saveContactField = async (field: "name" | "phone" | "email", value: string) => {
+    if (!contactPanel || !orgId || !currentUserId) return;
+    const supabase = createClient();
+    await Promise.all([
+      supabase.from("contacts").update({ [field]: value }).eq("id", contactPanel.contactId),
+      supabase.from("activity_log").insert({
+        organization_id: orgId,
+        conversation_id: contactPanel.conversationId,
+        contact_id: contactPanel.contactId,
+        performed_by: currentUserId,
+        action_type: "contact_updated",
+        description: `Campo "${field}" actualizado`,
+      }),
+    ]);
+    setContactPanel(prev => prev ? { ...prev, [field]: value } : prev);
+    setConversations(prev => prev.map(c =>
+      c.id === contactPanel.conversationId && c.contacts
+        ? { ...c, contacts: { ...c.contacts, [field]: value } }
+        : c
+    ));
+  };
+
   const assignConversation = async (agentId: string | null) => {
     if (!selected || !orgId || !currentUserId) return;
     const supabase = createClient();
@@ -304,7 +391,7 @@ export default function InboxPage() {
   return (
     <div style={{ display: "flex", height: "100%", overflow: "hidden", background: "#0a0a0a" }}>
 
-      {/* Panel izquierdo */}
+      {/* Panel izquierdo — lista conversaciones */}
       <div style={{ width: "300px", flexShrink: 0, display: "flex", flexDirection: "column", height: "100%", background: "#0d0d0d", borderRight: "1px solid #1a1a1a" }}>
         <div style={{ padding: "24px 16px 12px" }}>
           <h1 style={{ fontSize: "16px", fontWeight: 700, color: "#f0f0f0", margin: "0 0 16px" }}>Inbox</h1>
@@ -400,7 +487,7 @@ export default function InboxPage() {
 
       {/* Panel chat */}
       {selected ? (
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100%" }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100%", minWidth: 0 }}>
 
           {/* Header */}
           <div style={{ display: "flex", alignItems: "center", gap: "12px", padding: "16px 24px", background: "#0d0d0d", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
@@ -413,7 +500,14 @@ export default function InboxPage() {
               </div>
             </div>
             <div style={{ flex: 1 }}>
-              <p style={{ fontSize: "13px", fontWeight: 700, color: "#f0f0f0", margin: 0 }}>{contactName(selected)}</p>
+              <p
+                onClick={() => openContactPanel(selected)}
+                style={{ fontSize: "13px", fontWeight: 700, color: "#f0f0f0", margin: 0, cursor: "pointer", display: "inline-block" }}
+                onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = "var(--accent)"}
+                onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = "#f0f0f0"}
+              >
+                {contactName(selected)}
+              </p>
               <p style={{ fontSize: "10px", color: "#444", margin: "2px 0 0" }}>
                 vía {selected.channel.charAt(0).toUpperCase() + selected.channel.slice(1)}
               </p>
@@ -523,6 +617,53 @@ export default function InboxPage() {
       ) : (
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <p style={{ fontSize: "13px", color: "#333" }}>Seleccioná una conversación</p>
+        </div>
+      )}
+
+      {/* Panel contacto */}
+      {contactPanel && (
+        <div style={{ width: "300px", flexShrink: 0, display: "flex", flexDirection: "column", height: "100%", background: "#0d0d0d", borderLeft: "1px solid #1a1a1a" }}>
+
+          {/* Header */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
+            <span style={{ fontSize: "12px", fontWeight: 700, color: "#f0f0f0" }}>Contacto</span>
+            <button onClick={closeContactPanel}
+              style={{ width: "26px", height: "26px", borderRadius: "6px", background: "transparent", border: "1px solid #1e1e1e", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#444", transition: "all 0.1s ease", padding: 0 }}
+              onMouseEnter={e => { (e.currentTarget).style.background = "#1a1a1a"; (e.currentTarget).style.color = "#f0f0f0"; }}
+              onMouseLeave={e => { (e.currentTarget).style.background = "transparent"; (e.currentTarget).style.color = "#444"; }}
+            >
+              <X size={12} />
+            </button>
+          </div>
+
+          {/* Avatar + nombre */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "28px 20px 20px", borderBottom: "1px solid #1a1a1a" }}>
+            <div style={{ width: "52px", height: "52px", borderRadius: "50%", background: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px", fontWeight: 700, color: "#f0f0f0", marginBottom: "10px" }}>
+              {initials(contactPanel.name)}
+            </div>
+            <p style={{ fontSize: "14px", fontWeight: 700, color: "#f0f0f0", margin: 0, textAlign: "center" }}>{contactPanel.name}</p>
+          </div>
+
+          {/* Campos editables */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "20px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
+              <ContactField
+                label="Nombre"
+                value={contactPanel.name}
+                onSave={v => saveContactField("name", v)}
+              />
+              <ContactField
+                label="Teléfono"
+                value={contactPanel.phone ?? ""}
+                onSave={v => saveContactField("phone", v)}
+              />
+              <ContactField
+                label="Email"
+                value={contactPanel.email ?? ""}
+                onSave={v => saveContactField("email", v)}
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>

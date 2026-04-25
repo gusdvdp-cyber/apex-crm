@@ -1,14 +1,10 @@
-// app/(dashboard)/layout.tsx
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Sidebar from "@/components/layout/Sidebar";
 import ThemeProvider from "@/components/layout/ThemeProvider";
+import DashboardShell from "@/components/layout/DashboardShell";
 
-export default async function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
 
   const { data: { user } } = await supabase.auth.getUser();
@@ -32,17 +28,19 @@ export default async function DashboardLayout({
 
   return (
     <ThemeProvider organizationId={profile.organization_id}>
-      <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
-        <Sidebar
-          activeModuleKeys={activeModuleKeys}
-          isSuperAdmin={profile.role === "super_admin"}
-          userFullName={profile.full_name ?? user.email ?? "Usuario"}
-          userRole={profile.role}
-        />
-        <main style={{ flex: 1, minWidth: 0, height: "100%", overflow: "hidden" }}>
-          {children}
-        </main>
-      </div>
+      <DashboardShell>
+        <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+          <Sidebar
+            activeModuleKeys={activeModuleKeys}
+            isSuperAdmin={profile.role === "super_admin"}
+            userFullName={profile.full_name ?? user.email ?? "Usuario"}
+            userRole={profile.role}
+          />
+          <main style={{ flex: 1, minWidth: 0, height: "100%", overflow: "hidden" }}>
+            {children}
+          </main>
+        </div>
+      </DashboardShell>
     </ThemeProvider>
   );
 }
