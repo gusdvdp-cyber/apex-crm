@@ -5,9 +5,8 @@ import { NextRequest, NextResponse } from "next/server";
 const CHATWOOT_URL = process.env.CHATWOOT_URL!;
 const CHATWOOT_TOKEN = process.env.CHATWOOT_API_TOKEN!;
 const CHATWOOT_ACCOUNT = process.env.CHATWOOT_ACCOUNT_ID!;
-const EVO_URL = process.env.EVOLUTION_API_URL!;
-const EVO_KEY = process.env.EVOLUTION_API_KEY!;
-const EVO_INSTANCE = process.env.EVOLUTION_INSTANCE!;
+const WA_TOKEN = process.env.WHATSAPP_TOKEN!;
+const WA_PHONE_ID = process.env.WHATSAPP_PHONE_ID!;
 
 export async function POST(req: NextRequest) {
   try {
@@ -68,7 +67,7 @@ export async function POST(req: NextRequest) {
       ]);
     }
 
-    // ── WhatsApp via Evolution API ──────────────────────────────
+    // ── WhatsApp via Meta Cloud API ─────────────────────────────
     if (conversation.channel === "whatsapp") {
       const phone = conversation.external_id?.replace("wa_", "");
 
@@ -76,26 +75,35 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "No hay número de WhatsApp" }, { status: 400 });
       }
 
-      const evoRes = await fetch(
-        `${EVO_URL}/message/sendText/${EVO_INSTANCE}`,
+      const metaRes = await fetch(
+        `https://graph.facebook.com/v20.0/${WA_PHONE_ID}/messages`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json", "apikey": EVO_KEY },
-          body: JSON.stringify({ number: phone, text: content }),
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${WA_TOKEN}`,
+          },
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            to: phone,
+            type: "text",
+            text: { body: content },
+          }),
         }
       );
 
-      if (!evoRes.ok) {
-        const err = await evoRes.text();
-        console.error("Evolution API error:", err);
+      if (!metaRes.ok) {
+        const err = await metaRes.text();
+        console.error("Meta API error:", err);
         return NextResponse.json({ error: "Error al enviar por WhatsApp", detail: err }, { status: 500 });
       }
 
-      const result = await evoRes.json();
+      const result = await metaRes.json();
+      const messageId = result.messages?.[0]?.id ?? null;
 
       await supabase.from("messages").insert({
         conversation_id,
-        external_id: result.key?.id ?? null,
+        external_id: messageId,
         text: content,
         from_type: "me",
         sent_by: user?.id ?? null,
@@ -106,7 +114,7 @@ export async function POST(req: NextRequest) {
         updated_at: new Date().toISOString(),
       }).eq("id", conversation_id);
 
-      return NextResponse.json({ ok: true, message_id: result.key?.id });
+      return NextResponse.json({ ok: true, message_id: messageId });
     }
 
     // ── Instagram / Messenger via Chatwoot ─────────────────────
