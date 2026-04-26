@@ -220,20 +220,26 @@ export default function Sidebar({
           </NavTooltip>
         )}
 
-        <NavTooltip label="Configuración" collapsed={collapsed}>
-          <Link href="/settings"
-            style={{
-              display: "flex", alignItems: "center", justifyContent: collapsed ? "center" : "flex-start",
-              gap: collapsed ? 0 : "10px", padding: collapsed ? "9px" : "9px 12px", borderRadius: "8px",
-              textDecoration: "none", color: "#444", fontSize: "12px", fontWeight: 500, transition: "all 0.1s ease", overflow: "hidden",
-            }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "#141414"; (e.currentTarget as HTMLElement).style.color = "#f0f0f0"; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.color = "#444"; }}
-          >
-            <Settings size={15} strokeWidth={2} style={{ flexShrink: 0 }} />
-            <span style={labelStyle}>Configuración</span>
-          </Link>
-        </NavTooltip>
+        {["admin", "super_admin"].includes(userRole) && (
+          <NavTooltip label="Ajustes" collapsed={collapsed}>
+            <Link href="/ajustes/equipo"
+              style={{
+                display: "flex", alignItems: "center", justifyContent: collapsed ? "center" : "flex-start",
+                gap: collapsed ? 0 : "10px", padding: collapsed ? "9px" : "9px 12px", borderRadius: "8px",
+                textDecoration: "none",
+                color: pathname.startsWith("/ajustes") ? "#f0f0f0" : "#444",
+                background: pathname.startsWith("/ajustes") ? "#1a1a1a" : "transparent",
+                borderLeft: collapsed ? "none" : (pathname.startsWith("/ajustes") ? "2px solid var(--accent)" : "2px solid transparent"),
+                fontSize: "12px", fontWeight: 500, transition: "all 0.1s ease", overflow: "hidden",
+              }}
+              onMouseEnter={(e) => { if (!pathname.startsWith("/ajustes")) { (e.currentTarget as HTMLElement).style.background = "#141414"; (e.currentTarget as HTMLElement).style.color = "#f0f0f0"; } }}
+              onMouseLeave={(e) => { if (!pathname.startsWith("/ajustes")) { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.color = "#444"; } }}
+            >
+              <Settings size={15} strokeWidth={2} style={{ flexShrink: 0 }} />
+              <span style={labelStyle}>Ajustes</span>
+            </Link>
+          </NavTooltip>
+        )}
 
         {/* User card */}
         <div ref={dropdownRef} style={{ position: "relative" }}>

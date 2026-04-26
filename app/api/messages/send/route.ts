@@ -1,33 +1,13 @@
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import { createClient } from "@/lib/supabase/server";
 import { NextRequest, NextResponse } from "next/server";
-
-const CHATWOOT_URL = process.env.CHATWOOT_URL!;
-const CHATWOOT_TOKEN = process.env.CHATWOOT_API_TOKEN!;
-const CHATWOOT_ACCOUNT = process.env.CHATWOOT_ACCOUNT_ID!;
-const WA_TOKEN = process.env.WHATSAPP_TOKEN!;
-const WA_PHONE_ID = process.env.WHATSAPP_PHONE_ID!;
 
 export async function POST(req: NextRequest) {
   try {
     const { conversation_id, content } = await req.json();
-
-    if (!conversation_id || !content) {
+    if (!conversation_id || !content)
       return NextResponse.json({ error: "Faltan parámetros" }, { status: 400 });
-    }
 
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() { return cookieStore.getAll(); },
-          setAll() {},
-        },
-      }
-    );
-
+    const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
 
     const { data: conversation, error: convError } = await supabase
@@ -36,27 +16,20 @@ export async function POST(req: NextRequest) {
       .eq("id", conversation_id)
       .single();
 
-    if (convError || !conversation) {
+    if (convError || !conversation)
       return NextResponse.json({ error: "Conversación no encontrada" }, { status: 404 });
-    }
 
-    // Obtener display_name del agente
+    // Agent display name
     let agentName = "Agente";
     if (user?.id) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("display_name")
-        .eq("id", user.id)
-        .single();
-      if (profile?.display_name) agentName = profile.display_name;
+      const { data: p } = await supabase.from("profiles").select("display_name").eq("id", user.id).single();
+      if (p?.display_name) agentName = p.display_name;
     }
 
-    // Auto-asignar si la conversación no tiene agente
+    // Auto-assign
     if (user?.id && conversation.assigned_to === null) {
       await Promise.all([
-        supabase.from("conversations")
-          .update({ assigned_to: user.id })
-          .eq("id", conversation_id),
+        supabase.from("conversations").update({ assigned_to: user.id }).eq("id", conversation_id),
         supabase.from("activity_log").insert({
           organization_id: conversation.organization_id,
           conversation_id,
@@ -67,96 +40,99 @@ export async function POST(req: NextRequest) {
       ]);
     }
 
-    // ── WhatsApp via Meta Cloud API ─────────────────────────────
-    if (conversation.channel === "whatsapp") {
-      const phone = conversation.external_id?.replace("wa_", "");
-
-      if (!phone) {
-        return NextResponse.json({ error: "No hay número de WhatsApp" }, { status: 400 });
-      }
-
-      const metaRes = await fetch(
-        `https://graph.facebook.com/v20.0/${WA_PHONE_ID}/messages`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${WA_TOKEN}`,
-          },
-          body: JSON.stringify({
-            messaging_product: "whatsapp",
-            to: phone,
-            type: "text",
-            text: { body: content },
-          }),
-        }
-      );
-
-      if (!metaRes.ok) {
-        const err = await metaRes.text();
-        console.error("Meta API error:", err);
-        return NextResponse.json({ error: "Error al enviar por WhatsApp", detail: err }, { status: 500 });
-      }
-
-      const result = await metaRes.json();
-      const messageId = result.messages?.[0]?.id ?? null;
-
+    const saveMessage = async (externalId: string | null) => {
       await supabase.from("messages").insert({
         conversation_id,
-        external_id: messageId,
+        external_id: externalId,
         text: content,
         from_type: "me",
         sent_by: user?.id ?? null,
       });
-
       await supabase.from("conversations").update({
         last_message: content,
         updated_at: new Date().toISOString(),
       }).eq("id", conversation_id);
+    };
 
-      return NextResponse.json({ ok: true, message_id: messageId });
+    // ── WhatsApp via Evolution API ──────────────────────────────
+    if (conversation.channel === "whatsapp") {
+      const phone = conversation.external_id?.replace(/^wa_/, "");
+      if (!phone)
+        return NextResponse.json({ error: "No hay número de WhatsApp" }, { status: 400 });
+
+      // Fetch org-level config
+      const { data: integration } = await supabase
+        .from("org_integrations")
+        .select("config")
+        .eq("organization_id", conversation.organization_id)
+        .eq("channel", "whatsapp")
+        .eq("is_active", true)
+        .single();
+
+      const cfg = integration?.config ?? {};
+      const evoUrl = cfg.evolution_url || process.env.EVOLUTION_API_URL;
+      const evoKey = cfg.evolution_api_key || process.env.EVOLUTION_API_KEY;
+      const evoInstance = cfg.evolution_instance || process.env.EVOLUTION_INSTANCE;
+
+      if (!evoUrl || !evoKey || !evoInstance)
+        return NextResponse.json({ error: "WhatsApp no configurado para esta organización. Configurá las credenciales en Ajustes → Canales." }, { status: 400 });
+
+      const res = await fetch(`${evoUrl}/message/sendText/${evoInstance}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "apikey": evoKey },
+        body: JSON.stringify({ number: phone, text: content }),
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        console.error("Evolution API error:", err);
+        return NextResponse.json({ error: "Error al enviar por WhatsApp", detail: err }, { status: 500 });
+      }
+
+      const result = await res.json();
+      await saveMessage(result?.key?.id ?? null);
+      return NextResponse.json({ ok: true });
     }
 
-    // ── Instagram / Messenger via Chatwoot ─────────────────────
+    // ── Instagram / Messenger via Chatwoot ──────────────────────
     const chatwootConvId = conversation.external_id?.replace("chatwoot_", "");
+    if (!chatwootConvId)
+      return NextResponse.json({ error: "No hay ID de Chatwoot para esta conversación" }, { status: 400 });
 
-    if (!chatwootConvId) {
-      return NextResponse.json({ error: "No hay Chatwoot ID para esta conversación" }, { status: 400 });
-    }
+    // Fetch org-level config
+    const { data: integration } = await supabase
+      .from("org_integrations")
+      .select("config")
+      .eq("organization_id", conversation.organization_id)
+      .eq("channel", "chatwoot")
+      .eq("is_active", true)
+      .single();
 
-    const chatwootRes = await fetch(
-      `${CHATWOOT_URL}/api/v1/accounts/${CHATWOOT_ACCOUNT}/conversations/${chatwootConvId}/messages`,
+    const cfg = integration?.config ?? {};
+    const cwUrl = cfg.chatwoot_url || process.env.CHATWOOT_URL;
+    const cwToken = cfg.chatwoot_api_token || process.env.CHATWOOT_API_TOKEN;
+    const cwAccount = cfg.chatwoot_account_id || process.env.CHATWOOT_ACCOUNT_ID;
+
+    if (!cwUrl || !cwToken || !cwAccount)
+      return NextResponse.json({ error: "Instagram/Messenger no configurado para esta organización. Configurá las credenciales en Ajustes → Canales." }, { status: 400 });
+
+    const cwRes = await fetch(
+      `${cwUrl}/api/v1/accounts/${cwAccount}/conversations/${chatwootConvId}/messages`,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "api_access_token": CHATWOOT_TOKEN,
-        },
+        headers: { "Content-Type": "application/json", "api_access_token": cwToken },
         body: JSON.stringify({ content, message_type: "outgoing", private: false }),
       }
     );
 
-    if (!chatwootRes.ok) {
-      const err = await chatwootRes.text();
+    if (!cwRes.ok) {
+      const err = await cwRes.text();
       console.error("Chatwoot error:", err);
       return NextResponse.json({ error: "Error al enviar por Chatwoot", detail: err }, { status: 500 });
     }
 
-    const result = await chatwootRes.json();
-
-    await supabase.from("messages").insert({
-      conversation_id,
-      external_id: String(result.id) ?? null,
-      text: content,
-      from_type: "me",
-      sent_by: user?.id ?? null,
-    });
-
-    await supabase.from("conversations").update({
-      last_message: content,
-      updated_at: new Date().toISOString(),
-    }).eq("id", conversation_id);
-
+    const result = await cwRes.json();
+    await saveMessage(String(result.id) ?? null);
     return NextResponse.json({ ok: true, message_id: result.id });
 
   } catch (err) {

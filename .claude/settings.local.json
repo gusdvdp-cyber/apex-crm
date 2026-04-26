@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(netlify --version)",
+      "Bash(netlify status *)",
+      "Bash(netlify sites:list *)",
+      "Bash(netlify link *)",
+      "Bash(netlify deploy *)",
+      "Bash(NETLIFY_AUTH_TOKEN=\"nfc_wUF58aqDSSv4K6iZ3bwLgbCzhYrLXBCM2a7b\" netlify deploy *)",
+      "Bash(npm run *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(NETLIFY_AUTH_TOKEN=\"nfc_wUF58aqDSSv4K6iZ3bwLgbCzhYrLXBCM2a7b\" netlify api listSiteDeploys --data '{\"site_id\": \"dec76884-559e-4e06-bd38-3ae8563492c0\"}')",
+      "Bash(NETLIFY_AUTH_TOKEN=\"nfc_wUF58aqDSSv4K6iZ3bwLgbCzhYrLXBCM2a7b\" netlify api *)",
+      "Bash(NETLIFY_AUTH_TOKEN=\"nfc_wUF58aqDSSv4K6iZ3bwLgbCzhYrLXBCM2a7b\" netlify env:set *)",
+      "Bash(npx tsc *)",
+      "Bash(git commit *)",
+      "Bash(git reset *)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(k,v\\) for k,v in {**d.get\\('dependencies',{}\\),**d.get\\('devDependencies',{}\\)}.items\\(\\)]\")",
+      "Bash(netlify env:list)",
+      "Bash(netlify env:set SUPABASE_SERVICE_ROLE_KEY \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVudXd6bXVwdHZ5dmdzb3dlZ3lsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTE4Mzc4MCwiZXhwIjoyMDkwNzU5NzgwfQ.zBE3M7IHV1Jda9mWcixr-APGPmfplYRa7hCTsuQT2jI\")"
+    ]
+  }
+}

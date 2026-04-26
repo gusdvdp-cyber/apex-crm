@@ -20,8 +20,9 @@ export default function AdminPage() {
   const [orgs, setOrgs] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
-  const [newOrg, setNewOrg] = useState({ name: "", slug: "", primary_color: "#c8f135" });
+  const [newOrg, setNewOrg] = useState({ name: "", slug: "", primary_color: "#c8f135", admin_email: "" });
   const [saving, setSaving] = useState(false);
+  const [createError, setCreateError] = useState("");
 
   useEffect(() => { fetchOrgs(); }, []);
 
@@ -33,18 +34,21 @@ export default function AdminPage() {
   };
 
   const createOrg = async () => {
-    if (!newOrg.name || !newOrg.slug) return;
+    if (!newOrg.name || !newOrg.slug || !newOrg.admin_email) return;
     setSaving(true);
-    const supabase = createClient();
-    const { error } = await supabase.from("organizations").insert({
-      name: newOrg.name,
-      slug: newOrg.slug.toLowerCase().replace(/\s+/g, "-"),
-      primary_color: newOrg.primary_color,
+    setCreateError("");
+    const res = await fetch("/api/admin/create-org", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(newOrg),
     });
-    if (!error) {
+    const json = await res.json();
+    if (!res.ok) {
+      setCreateError(json.error || "Error al crear");
+    } else {
       await fetchOrgs();
       setShowNew(false);
-      setNewOrg({ name: "", slug: "", primary_color: "#c8f135" });
+      setNewOrg({ name: "", slug: "", primary_color: "#c8f135", admin_email: "" });
     }
     setSaving(false);
   };
@@ -98,19 +102,20 @@ export default function AdminPage() {
             <h2 style={{ fontSize: "15px", fontWeight: 700, color: "#f0f0f0", margin: "0 0 20px" }}>Nueva organización</h2>
             <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
               {[
-                { label: "Nombre", key: "name", placeholder: "Ej: Hotel Palermo" },
-                { label: "Slug", key: "slug", placeholder: "Ej: hotel-palermo" },
-              ].map(({ label, key, placeholder }) => (
+                { label: "Nombre de la organización", key: "name", placeholder: "Ej: Hotel Palermo", type: "text" },
+                { label: "Slug (identificador único)", key: "slug", placeholder: "Ej: hotel-palermo", type: "text" },
+                { label: "Email del admin", key: "admin_email", placeholder: "admin@empresa.com", type: "email" },
+              ].map(({ label, key, placeholder, type }) => (
                 <div key={key}>
                   <label style={{ fontSize: "10px", fontWeight: 600, color: "#444", textTransform: "uppercase", letterSpacing: "0.08em", display: "block", marginBottom: "6px" }}>
                     {label}
                   </label>
                   <input
-                    type="text"
+                    type={type}
                     placeholder={placeholder}
                     value={newOrg[key as keyof typeof newOrg]}
                     onChange={(e) => setNewOrg({ ...newOrg, [key]: e.target.value })}
-                    style={{ width: "100%", padding: "10px 12px", background: "#111", border: "1px solid #1e1e1e", borderRadius: "8px", color: "#f0f0f0", fontSize: "13px", outline: "none" }}
+                    style={{ width: "100%", padding: "10px 12px", background: "#111", border: "1px solid #1e1e1e", borderRadius: "8px", color: "#f0f0f0", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
                   />
                 </div>
               ))}
@@ -130,13 +135,21 @@ export default function AdminPage() {
                 </div>
               </div>
             </div>
-            <div style={{ display: "flex", gap: "8px", marginTop: "24px" }}>
+            {createError && (
+              <p style={{ fontSize: "11px", color: "#ef4444", margin: "4px 0 0", padding: "8px 10px", background: "#ef444415", borderRadius: "6px" }}>
+                {createError}
+              </p>
+            )}
+            <p style={{ fontSize: "10px", color: "#444", margin: "4px 0 0" }}>
+              Se enviará un email de invitación al admin para que setee su contraseña.
+            </p>
+            <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
               <button
                 onClick={createOrg}
-                disabled={saving || !newOrg.name || !newOrg.slug}
-                style={{ flex: 1, padding: "10px", borderRadius: "10px", background: "#c8f135", border: "none", cursor: "pointer", fontSize: "12px", fontWeight: 700, color: "#0a0a0a", opacity: saving ? 0.6 : 1 }}
+                disabled={saving || !newOrg.name || !newOrg.slug || !newOrg.admin_email}
+                style={{ flex: 1, padding: "10px", borderRadius: "10px", background: "#c8f135", border: "none", cursor: "pointer", fontSize: "12px", fontWeight: 700, color: "#0a0a0a", opacity: (saving || !newOrg.admin_email) ? 0.5 : 1 }}
               >
-                {saving ? "Creando..." : "Crear organización"}
+                {saving ? "Creando..." : "Crear y enviar invitación"}
               </button>
               <button
                 onClick={() => setShowNew(false)}

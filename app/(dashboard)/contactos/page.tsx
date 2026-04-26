@@ -47,9 +47,14 @@ export default function ContactosPage() {
     const load = async () => {
       try {
         const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const { data: profile } = await supabase.from("profiles").select("organization_id").eq("id", user.id).single();
+        if (!profile) return;
         const { data } = await supabase
           .from("contacts")
           .select("id, name, last_name, phone, email, company, avatar_url")
+          .eq("organization_id", profile.organization_id)
           .order("created_at", { ascending: false });
         if (data) setContacts(data as Contact[]);
       } finally {
