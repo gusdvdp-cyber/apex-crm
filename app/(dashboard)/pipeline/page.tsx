@@ -126,6 +126,7 @@ export default function PipelinePage() {
   const [showNewPipeline, setShowNewPipeline] = useState(false);
   const [newPipelineName, setNewPipelineName] = useState("");
   const [creatingPipeline, setCreatingPipeline] = useState(false);
+  const [pipelineError, setPipelineError] = useState<string | null>(null);
 
   // Add card modal
   const [addCardStageId, setAddCardStageId] = useState<string | null>(null);
@@ -186,9 +187,16 @@ export default function PipelinePage() {
   const createPipeline = async () => {
     if (!newPipelineName.trim() || !orgId) return;
     setCreatingPipeline(true);
+    setPipelineError(null);
     const supabase = createClient();
-    const { data: pipeline } = await supabase.from("pipelines")
+    const { data: pipeline, error } = await supabase.from("pipelines")
       .insert({ organization_id: orgId, name: newPipelineName.trim() }).select().single();
+    if (error) {
+      console.error("Pipeline create error:", error);
+      setPipelineError("Error al crear. ¿Corriste el SQL en Supabase?");
+      setCreatingPipeline(false);
+      return;
+    }
     if (pipeline) {
       await supabase.from("pipeline_stages").insert([
         { pipeline_id: pipeline.id, name: "Nuevo", color: "#3b82f6", position: 0 },
@@ -521,7 +529,7 @@ export default function PipelinePage() {
       {/* ── New Pipeline Modal ─────────────────────────────────── */}
       {showNewPipeline && (
         <>
-          <div style={{ position: "fixed", inset: 0, background: "#00000080", zIndex: 100 }} onClick={() => setShowNewPipeline(false)} />
+          <div style={{ position: "fixed", inset: 0, background: "#00000080", zIndex: 100 }} onClick={() => { setShowNewPipeline(false); setPipelineError(null); }} />
           <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", background: "#161616", border: "1px solid #2a2a2a", borderRadius: "16px", padding: "28px", width: "380px", zIndex: 101 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
               <h2 style={{ fontSize: "14px", fontWeight: 700, color: "#f0f0f0", margin: 0 }}>Nuevo Pipeline</h2>
@@ -532,6 +540,9 @@ export default function PipelinePage() {
               onKeyDown={e => { if (e.key === "Enter") createPipeline(); }}
               style={{ width: "100%", background: "#0d0d0d", border: "1px solid #2a2a2a", borderRadius: "10px", padding: "10px 14px", color: "#f0f0f0", fontSize: "13px", outline: "none", boxSizing: "border-box", marginBottom: "12px" }}
             />
+            {pipelineError && (
+              <p style={{ fontSize: "11px", color: "#ff4444", margin: "0 0 12px", background: "#ff444410", padding: "8px 12px", borderRadius: "8px", border: "1px solid #ff444430" }}>{pipelineError}</p>
+            )}
             <p style={{ fontSize: "11px", color: "#444", margin: "0 0 20px" }}>
               Se crearán 3 etapas por defecto: <span style={{ color: "#666" }}>Nuevo, En proceso, Cerrado</span>
             </p>

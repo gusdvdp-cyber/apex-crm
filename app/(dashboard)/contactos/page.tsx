@@ -20,7 +20,7 @@ function AvatarImage({ contactId, avatarUrl, name, size }: {
 }) {
   const [failed, setFailed] = useState(false);
   const initials = name.split(" ").filter(Boolean).map(n => n[0]).join("").slice(0, 2).toUpperCase() || "?";
-  const src = !failed && avatarUrl || null;
+  const src = !failed && (avatarUrl || `https://picsum.photos/seed/${contactId}/200/200`) || null;
 
   if (!src) {
     return (
