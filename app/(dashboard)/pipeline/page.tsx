@@ -2,16 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Plus, MoreHorizontal, X, Zap, Pencil, Trash2, Check } from "lucide-react";
+import { Plus, MoreHorizontal, X, Zap, Pencil, Trash2, Check, RotateCcw } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────
 interface Pipeline { id: string; name: string; }
-interface Stage { id: string; pipeline_id: string; name: string; color: string; position: number; }
+interface Stage { id: string; pipeline_id: string; name: string; color: string; position: number; is_fixed: boolean; }
 interface CardContact { id: string; name: string; last_name: string | null; avatar_url: string | null; }
 interface Card {
   id: string; stage_id: string; contact_id: string | null;
   value: number | null; channel: string | null; assigned_to: string | null;
   created_at: string; contacts: CardContact | null;
+  status: string | null; won_amount: number | null;
+  lost_reason: string | null; closed_at: string | null;
 }
 interface Automation {
   id: string; pipeline_id: string; organization_id: string;
@@ -46,7 +48,7 @@ function MiniAvatar({ contact, size = 22 }: { contact: CardContact | null; size?
   if (!contact) return <div style={{ width: size, height: size, borderRadius: "50%", background: "#1a1a1a", flexShrink: 0 }} />;
   const name = [contact.name, contact.last_name].filter(Boolean).join(" ");
   const initials = name.split(" ").filter(Boolean).map(n => n[0]).join("").slice(0, 2).toUpperCase() || "?";
-  const src = !failed && contact.avatar_url;
+  const src = !failed && (contact.avatar_url || `https://picsum.photos/seed/${contact.id}/200/200`);
   if (!src) return (
     <div style={{ width: size, height: size, borderRadius: "50%", background: "#1e1e1e", display: "flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.35, fontWeight: 700, color: "#666", flexShrink: 0 }}>
       {initials}
@@ -55,25 +57,37 @@ function MiniAvatar({ contact, size = 22 }: { contact: CardContact | null; size?
   return <img src={src} alt={name} style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} onError={() => setFailed(true)} />;
 }
 
-function KanbanCard({ card, dragging, agents }: { card: Card; dragging: boolean; agents: AgentProfile[] }) {
+function KanbanCard({ card, dragging, agents, onReopen }: {
+  card: Card; dragging: boolean; agents: AgentProfile[]; onReopen?: () => void;
+}) {
   const name = card.contacts ? [card.contacts.name, card.contacts.last_name].filter(Boolean).join(" ") : "Sin contacto";
   const agent = agents.find(a => a.id === card.assigned_to);
   const agentInitials = agent?.display_name
     ? agent.display_name.split(" ").filter(Boolean).map(n => n[0]).join("").slice(0, 2).toUpperCase()
     : null;
   const daysAgo = Math.floor((Date.now() - new Date(card.created_at).getTime()) / 86400000);
+  const isWon = card.status === "won";
+  const isLost = card.status === "lost";
+  const isClosed = isWon || isLost;
 
   return (
     <div style={{
-      padding: "11px 12px", background: dragging ? "#161616" : "#111",
-      border: "1px solid #1e1e1e", borderRadius: "10px", opacity: dragging ? 0.4 : 1,
+      padding: "11px 12px",
+      background: dragging ? "#161616" : "#111",
+      border: `1px solid ${isWon ? "#c8f13540" : isLost ? "#ef444440" : "#1e1e1e"}`,
+      borderRadius: "10px",
+      opacity: isClosed ? 0.7 : (dragging ? 0.4 : 1),
       userSelect: "none", transition: "opacity 0.1s",
     }}
-      onMouseEnter={e => { if (!dragging) (e.currentTarget as HTMLElement).style.borderColor = "#2a2a2a"; }}
-      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = "#1e1e1e"; }}
+      onMouseEnter={e => { if (!isClosed && !dragging) (e.currentTarget as HTMLElement).style.borderColor = "#2a2a2a"; }}
+      onMouseLeave={e => { if (!isClosed) (e.currentTarget as HTMLElement).style.borderColor = "#1e1e1e"; }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
-        <ChannelBadge channel={card.channel} />
+        {isClosed ? (
+          <span style={{ fontSize: "9px", fontWeight: 700, padding: "2px 7px", borderRadius: "20px", background: isWon ? "#c8f13520" : "#ef444420", color: isWon ? "#c8f135" : "#ef4444", border: `1px solid ${isWon ? "#c8f13540" : "#ef444440"}` }}>
+            {isWon ? "Ganado" : "Perdido"}
+          </span>
+        ) : <ChannelBadge channel={card.channel} />}
         {agentInitials && (
           <div style={{ width: "18px", height: "18px", borderRadius: "50%", background: "#c8f13515", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "7px", fontWeight: 700, color: "#c8f135", flexShrink: 0 }}>
             {agentInitials}
@@ -85,11 +99,26 @@ function KanbanCard({ card, dragging, agents }: { card: Card; dragging: boolean;
         <p style={{ fontSize: "12px", fontWeight: 700, color: "#f0f0f0", margin: 0 }}>{name}</p>
       </div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        {card.value != null
-          ? <span style={{ fontSize: "12px", fontWeight: 800, color: "#c8f135" }}>${Number(card.value).toLocaleString()}</span>
-          : <span />}
-        <span style={{ fontSize: "9px", color: "#333", fontWeight: 500 }}>{daysAgo === 0 ? "Hoy" : `${daysAgo}d`}</span>
+        {(isWon && card.won_amount != null)
+          ? <span style={{ fontSize: "12px", fontWeight: 800, color: "#c8f135" }}>${Number(card.won_amount).toLocaleString()}</span>
+          : card.value != null
+            ? <span style={{ fontSize: "12px", fontWeight: 800, color: "#c8f135" }}>${Number(card.value).toLocaleString()}</span>
+            : <span />}
+        {isClosed && onReopen ? (
+          <button onClick={e => { e.stopPropagation(); onReopen(); }}
+            style={{ display: "flex", alignItems: "center", gap: "4px", background: "transparent", border: "1px solid #2a2a2a", borderRadius: "6px", padding: "2px 7px", color: "#555", fontSize: "9px", fontWeight: 600, cursor: "pointer" }}
+            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = "#f0f0f0"; (e.currentTarget as HTMLElement).style.borderColor = "#444"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "#555"; (e.currentTarget as HTMLElement).style.borderColor = "#2a2a2a"; }}
+          >
+            <RotateCcw size={9} /> Reabrir
+          </button>
+        ) : (
+          <span style={{ fontSize: "9px", color: "#333", fontWeight: 500 }}>{daysAgo === 0 ? "Hoy" : `${daysAgo}d`}</span>
+        )}
       </div>
+      {isLost && card.lost_reason && (
+        <p style={{ fontSize: "10px", color: "#555", margin: "7px 0 0", fontStyle: "italic", borderTop: "1px solid #1a1a1a", paddingTop: "6px" }}>"{card.lost_reason}"</p>
+      )}
     </div>
   );
 }
@@ -115,6 +144,11 @@ export default function PipelinePage() {
   // DnD
   const [draggingCardId, setDraggingCardId] = useState<string | null>(null);
   const [dragOverStageId, setDragOverStageId] = useState<string | null>(null);
+
+  // Won / Lost modals
+  const [pendingDrop, setPendingDrop] = useState<{ cardId: string; stageId: string; isWon: boolean } | null>(null);
+  const [wonAmount, setWonAmount] = useState("");
+  const [lostReason, setLostReason] = useState("");
 
   // Stage editing
   const [stageMenuId, setStageMenuId] = useState<string | null>(null);
@@ -181,7 +215,8 @@ export default function PipelinePage() {
     setStages(stagesData);
     setCards((cds as Card[]) ?? []);
     setAutomations((autos as Automation[]) ?? []);
-    if (stagesData.length > 0) setAutoStageId(stagesData[0].id);
+    const firstFree = stagesData.find(s => !s.is_fixed);
+    if (firstFree) setAutoStageId(firstFree.id);
   };
 
   const createPipeline = async () => {
@@ -199,9 +234,11 @@ export default function PipelinePage() {
     }
     if (pipeline) {
       await supabase.from("pipeline_stages").insert([
-        { pipeline_id: pipeline.id, name: "Nuevo", color: "#3b82f6", position: 0 },
-        { pipeline_id: pipeline.id, name: "En proceso", color: "#f59e0b", position: 1 },
-        { pipeline_id: pipeline.id, name: "Cerrado", color: "#c8f135", position: 2 },
+        { pipeline_id: pipeline.id, name: "Nuevo", color: "#3b82f6", position: 0, is_fixed: false },
+        { pipeline_id: pipeline.id, name: "En proceso", color: "#f59e0b", position: 1, is_fixed: false },
+        { pipeline_id: pipeline.id, name: "Cerrado", color: "#8b5cf6", position: 2, is_fixed: false },
+        { pipeline_id: pipeline.id, name: "Ganado", color: "#c8f135", position: 98, is_fixed: true },
+        { pipeline_id: pipeline.id, name: "Perdido", color: "#ef4444", position: 99, is_fixed: true },
       ]);
       setPipelines(prev => [...prev, pipeline as Pipeline]);
       setActivePipelineId(pipeline.id);
@@ -213,12 +250,16 @@ export default function PipelinePage() {
 
   const addStage = async () => {
     if (!activePipelineId) return;
+    const maxFreePos = Math.max(...stages.filter(s => !s.is_fixed).map(s => s.position), -1);
     const supabase = createClient();
     const { data } = await supabase.from("pipeline_stages")
-      .insert({ pipeline_id: activePipelineId, name: "Nueva etapa", color: "#c8f135", position: stages.length })
+      .insert({ pipeline_id: activePipelineId, name: "Nueva etapa", color: "#c8f135", position: maxFreePos + 1, is_fixed: false })
       .select().single();
     if (data) {
-      setStages(prev => [...prev, data as Stage]);
+      setStages(prev => {
+        const updated = [...prev, data as Stage];
+        return updated.sort((a, b) => a.position - b.position);
+      });
       setRenamingStageId((data as Stage).id);
       setRenameVal("Nueva etapa");
     }
@@ -245,13 +286,48 @@ export default function PipelinePage() {
   };
 
   const handleDrop = async (targetStageId: string) => {
+    if (!draggingCardId) { setDragOverStageId(null); return; }
     const card = cards.find(c => c.id === draggingCardId);
-    if (!card || card.stage_id === targetStageId) { setDraggingCardId(null); setDragOverStageId(null); return; }
-    setCards(prev => prev.map(c => c.id === draggingCardId ? { ...c, stage_id: targetStageId } : c));
+    if (!card || card.stage_id === targetStageId || card.status != null) {
+      setDraggingCardId(null); setDragOverStageId(null); return;
+    }
+    const targetStage = stages.find(s => s.id === targetStageId);
     setDraggingCardId(null);
     setDragOverStageId(null);
+
+    if (targetStage?.is_fixed) {
+      setPendingDrop({ cardId: card.id, stageId: targetStageId, isWon: targetStage.name === "Ganado" });
+      setWonAmount(""); setLostReason("");
+      return;
+    }
+    setCards(prev => prev.map(c => c.id === card.id ? { ...c, stage_id: targetStageId } : c));
     const supabase = createClient();
-    await supabase.from("pipeline_cards").update({ stage_id: targetStageId }).eq("id", draggingCardId!);
+    await supabase.from("pipeline_cards").update({ stage_id: targetStageId }).eq("id", card.id);
+  };
+
+  const confirmDrop = async () => {
+    if (!pendingDrop) return;
+    const { cardId, stageId, isWon } = pendingDrop;
+    if (isWon && !wonAmount.trim()) return;
+    const supabase = createClient();
+    const updates = isWon
+      ? { stage_id: stageId, status: "won", won_amount: Number(wonAmount), closed_at: new Date().toISOString() }
+      : { stage_id: stageId, status: "lost", lost_reason: lostReason.trim() || null, closed_at: new Date().toISOString() };
+    await supabase.from("pipeline_cards").update(updates).eq("id", cardId);
+    setCards(prev => prev.map(c => c.id === cardId ? { ...c, ...updates } : c));
+    setPendingDrop(null);
+  };
+
+  const reopenCard = async (cardId: string) => {
+    const firstFreeStage = stages.find(s => !s.is_fixed);
+    if (!firstFreeStage) return;
+    const supabase = createClient();
+    await supabase.from("pipeline_cards").update({
+      stage_id: firstFreeStage.id, status: null, won_amount: null, lost_reason: null, closed_at: null,
+    }).eq("id", cardId);
+    setCards(prev => prev.map(c => c.id === cardId
+      ? { ...c, stage_id: firstFreeStage.id, status: null, won_amount: null, lost_reason: null, closed_at: null }
+      : c));
   };
 
   const openAddCard = async (stageId: string) => {
@@ -304,8 +380,9 @@ export default function PipelinePage() {
   };
 
   const activePipeline = pipelines.find(p => p.id === activePipelineId);
-  const totalCards = cards.length;
-  const totalValue = cards.reduce((s, c) => s + (c.value ?? 0), 0);
+  const activeCards = cards.filter(c => c.status == null);
+  const totalValue = activeCards.reduce((s, c) => s + (c.value ?? 0), 0);
+  const freeStages = stages.filter(s => !s.is_fixed);
   const filteredContacts = contacts.filter(c => {
     const q = contactSearch.toLowerCase();
     return (c.name ?? "").toLowerCase().includes(q) || (c.last_name ?? "").toLowerCase().includes(q);
@@ -327,14 +404,7 @@ export default function PipelinePage() {
           <div style={{ display: "flex", alignItems: "center", gap: "4px", flex: 1, minWidth: 0, overflowX: "auto" }}>
             {pipelines.map(p => (
               <button key={p.id} onClick={() => setActivePipelineId(p.id)}
-                style={{
-                  padding: "5px 14px", borderRadius: "8px", border: "none", cursor: "pointer",
-                  fontSize: "12px", fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0,
-                  background: activePipelineId === p.id ? "#1a1a1a" : "transparent",
-                  color: activePipelineId === p.id ? "#f0f0f0" : "#444",
-                  borderBottom: activePipelineId === p.id ? "2px solid var(--accent)" : "2px solid transparent",
-                  transition: "all 0.1s",
-                }}>
+                style={{ padding: "5px 14px", borderRadius: "8px", border: "none", cursor: "pointer", fontSize: "12px", fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0, background: activePipelineId === p.id ? "#1a1a1a" : "transparent", color: activePipelineId === p.id ? "#f0f0f0" : "#444", borderBottom: activePipelineId === p.id ? "2px solid var(--accent)" : "2px solid transparent", transition: "all 0.1s" }}>
                 {p.name}
               </button>
             ))}
@@ -346,11 +416,10 @@ export default function PipelinePage() {
               <Plus size={11} /> Nuevo Pipeline
             </button>
           </div>
-
           {activePipelineId && (
             <div style={{ display: "flex", alignItems: "center", gap: "12px", flexShrink: 0 }}>
               <p style={{ fontSize: "10px", color: "#444", margin: 0, whiteSpace: "nowrap" }}>
-                {totalCards} cards{totalValue > 0 ? ` · $${totalValue.toLocaleString()}` : ""}
+                {activeCards.length} activos{totalValue > 0 ? ` · $${totalValue.toLocaleString()}` : ""}
               </p>
               <button onClick={() => setShowAutomations(true)}
                 style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 12px", borderRadius: "8px", background: "#c8f13510", border: "1px solid #c8f13530", color: "#c8f135", fontSize: "11px", fontWeight: 600, cursor: "pointer" }}
@@ -359,16 +428,14 @@ export default function PipelinePage() {
               >
                 <Zap size={12} />
                 Automatizaciones
-                {activeAutoCount > 0 && (
-                  <span style={{ background: "#c8f135", color: "#0a0a0a", borderRadius: "20px", padding: "0 5px", fontSize: "9px", fontWeight: 800 }}>{activeAutoCount}</span>
-                )}
+                {activeAutoCount > 0 && <span style={{ background: "#c8f135", color: "#0a0a0a", borderRadius: "20px", padding: "0 5px", fontSize: "9px", fontWeight: 800 }}>{activeAutoCount}</span>}
               </button>
             </div>
           )}
         </div>
       </div>
 
-      {/* ── Kanban board ──────────────────────────────────────── */}
+      {/* ── Kanban ────────────────────────────────────────────── */}
       {pipelines.length === 0 ? (
         <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "14px" }}>
           <p style={{ fontSize: "13px", color: "#444" }}>No hay pipelines todavía</p>
@@ -380,21 +447,20 @@ export default function PipelinePage() {
       ) : (
         <div style={{ flex: 1, overflowX: "auto", overflowY: "hidden" }}>
           <div style={{ display: "flex", gap: "12px", padding: "20px 24px", height: "100%", minWidth: "max-content", alignItems: "flex-start", boxSizing: "border-box" }}>
-
             {stages.map(stage => {
               const stageCards = cards.filter(c => c.stage_id === stage.id);
               const isDragOver = dragOverStageId === stage.id;
               const menuOpen = stageMenuId === stage.id;
               const isRenaming = renamingStageId === stage.id;
               const colorPickerOpen = colorPickerId === stage.id;
-              const stageValue = stageCards.reduce((s, c) => s + (c.value ?? 0), 0);
+              const stageValue = stageCards.reduce((s, c) => s + (c.won_amount ?? c.value ?? 0), 0);
 
               return (
                 <div key={stage.id}
                   style={{
                     display: "flex", flexDirection: "column", width: "260px", flexShrink: 0,
-                    background: isDragOver ? "#c8f13506" : "#0d0d0d",
-                    border: `1px solid ${isDragOver ? "#c8f13540" : "#1a1a1a"}`,
+                    background: isDragOver ? (stage.name === "Ganado" ? "#c8f13506" : stage.name === "Perdido" ? "#ef444406" : "#c8f13506") : "#0d0d0d",
+                    border: `1px solid ${isDragOver ? (stage.name === "Perdido" ? "#ef444440" : "#c8f13540") : (stage.is_fixed ? "#1e1e1e" : "#1a1a1a")}`,
                     borderRadius: "14px", transition: "all 0.15s",
                     maxHeight: "calc(100vh - 120px)",
                   }}
@@ -405,13 +471,12 @@ export default function PipelinePage() {
                   {/* Stage header */}
                   <div style={{ padding: "13px 12px 9px", flexShrink: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "7px" }}>
-
-                      {/* Color dot → picker */}
+                      {/* Color dot / picker (only for non-fixed) */}
                       <div style={{ position: "relative", flexShrink: 0 }}>
-                        <div onClick={() => setColorPickerId(colorPickerOpen ? null : stage.id)}
-                          style={{ width: "8px", height: "8px", borderRadius: "50%", background: stage.color, cursor: "pointer" }}
+                        <div onClick={() => !stage.is_fixed && setColorPickerId(colorPickerOpen ? null : stage.id)}
+                          style={{ width: "8px", height: "8px", borderRadius: "50%", background: stage.color, cursor: stage.is_fixed ? "default" : "pointer" }}
                         />
-                        {colorPickerOpen && (
+                        {colorPickerOpen && !stage.is_fixed && (
                           <>
                             <div style={{ position: "fixed", inset: 0, zIndex: 49 }} onClick={() => setColorPickerId(null)} />
                             <div style={{ position: "absolute", top: "14px", left: 0, background: "#161616", border: "1px solid #222", borderRadius: "10px", padding: "10px", zIndex: 50 }}>
@@ -431,10 +496,7 @@ export default function PipelinePage() {
                         <input autoFocus value={renameVal}
                           onChange={e => setRenameVal(e.target.value)}
                           onBlur={() => { if (renameVal.trim()) renameStage(stage.id, renameVal.trim()); else setRenamingStageId(null); }}
-                          onKeyDown={e => {
-                            if (e.key === "Enter" && renameVal.trim()) renameStage(stage.id, renameVal.trim());
-                            if (e.key === "Escape") setRenamingStageId(null);
-                          }}
+                          onKeyDown={e => { if (e.key === "Enter" && renameVal.trim()) renameStage(stage.id, renameVal.trim()); if (e.key === "Escape") setRenamingStageId(null); }}
                           style={{ flex: 1, background: "transparent", border: "none", borderBottom: "1px solid var(--accent)", color: "#f0f0f0", fontSize: "11px", fontWeight: 700, outline: "none", padding: "0 0 1px", minWidth: 0 }}
                         />
                       ) : (
@@ -443,14 +505,16 @@ export default function PipelinePage() {
 
                       <span style={{ fontSize: "9px", fontWeight: 700, padding: "1px 6px", borderRadius: "6px", background: "#161616", color: "#444", flexShrink: 0 }}>{stageCards.length}</span>
 
-                      {/* + card */}
-                      <button onClick={() => openAddCard(stage.id)}
-                        style={{ width: "22px", height: "22px", borderRadius: "6px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
-                        onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "#1a1a1a"}
-                        onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
-                      >
-                        <Plus size={13} color="#444" />
-                      </button>
+                      {/* + card (only non-fixed) */}
+                      {!stage.is_fixed && (
+                        <button onClick={() => openAddCard(stage.id)}
+                          style={{ width: "22px", height: "22px", borderRadius: "6px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+                          onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "#1a1a1a"}
+                          onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
+                        >
+                          <Plus size={13} color="#444" />
+                        </button>
+                      )}
 
                       {/* Stage menu */}
                       <div style={{ position: "relative", flexShrink: 0 }}>
@@ -471,13 +535,17 @@ export default function PipelinePage() {
                                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "transparent"; (e.currentTarget as HTMLElement).style.color = "#888"; }}>
                                 <Pencil size={12} /> Renombrar
                               </button>
-                              <div style={{ height: "1px", background: "#1e1e1e", margin: "4px 0" }} />
-                              <button onClick={() => { deleteStage(stage.id); setStageMenuId(null); }}
-                                style={miStyle(true)}
-                                onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "#ff444415"}
-                                onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}>
-                                <Trash2 size={12} /> Eliminar
-                              </button>
+                              {!stage.is_fixed && (
+                                <>
+                                  <div style={{ height: "1px", background: "#1e1e1e", margin: "4px 0" }} />
+                                  <button onClick={() => { deleteStage(stage.id); setStageMenuId(null); }}
+                                    style={miStyle(true)}
+                                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "#ff444415"}
+                                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}>
+                                    <Trash2 size={12} /> Eliminar
+                                  </button>
+                                </>
+                              )}
                             </div>
                           </>
                         )}
@@ -488,20 +556,23 @@ export default function PipelinePage() {
                     )}
                   </div>
 
-                  {/* Divider */}
                   <div style={{ height: "1px", background: "#161616", margin: "0 12px" }} />
 
                   {/* Cards */}
                   <div style={{ flex: 1, overflowY: "auto", padding: "10px", display: "flex", flexDirection: "column", gap: "8px" }}>
-                    {stageCards.map(card => (
-                      <div key={card.id} draggable
-                        onDragStart={() => setDraggingCardId(card.id)}
-                        onDragEnd={() => { setDraggingCardId(null); setDragOverStageId(null); }}
-                        style={{ cursor: "grab" }}
-                      >
-                        <KanbanCard card={card} dragging={draggingCardId === card.id} agents={agents} />
-                      </div>
-                    ))}
+                    {stageCards.map(card => {
+                      const isClosed = card.status != null;
+                      return (
+                        <div key={card.id}
+                          draggable={!isClosed}
+                          onDragStart={() => !isClosed && setDraggingCardId(card.id)}
+                          onDragEnd={() => { setDraggingCardId(null); setDragOverStageId(null); }}
+                          style={{ cursor: isClosed ? "default" : "grab" }}
+                        >
+                          <KanbanCard card={card} dragging={draggingCardId === card.id} agents={agents} onReopen={isClosed ? () => reopenCard(card.id) : undefined} />
+                        </div>
+                      );
+                    })}
                     {stageCards.length === 0 && !isDragOver && (
                       <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: "80px", border: "1px dashed #1e1e1e", borderRadius: "10px" }}>
                         <p style={{ fontSize: "10px", color: "#2a2a2a" }}>Arrastrá aquí</p>
@@ -512,10 +583,10 @@ export default function PipelinePage() {
               );
             })}
 
-            {/* + Etapa */}
+            {/* + Etapa (only before fixed stages) */}
             {activePipelineId && (
               <button onClick={addStage}
-                style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 16px", height: "fit-content", background: "transparent", border: "1px dashed #1e1e1e", borderRadius: "14px", color: "#333", fontSize: "12px", fontWeight: 600, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap", transition: "all 0.15s" }}
+                style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 16px", height: "fit-content", background: "transparent", border: "1px dashed #1e1e1e", borderRadius: "14px", color: "#333", fontSize: "12px", fontWeight: 600, cursor: "pointer", flexShrink: 0, whiteSpace: "nowrap", alignSelf: "flex-start", marginTop: "0px" }}
                 onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = "#c8f13540"; (e.currentTarget as HTMLElement).style.color = "#c8f135"; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = "#1e1e1e"; (e.currentTarget as HTMLElement).style.color = "#333"; }}
               >
@@ -524,6 +595,74 @@ export default function PipelinePage() {
             )}
           </div>
         </div>
+      )}
+
+      {/* ── Won modal ─────────────────────────────────────────── */}
+      {pendingDrop?.isWon && (
+        <>
+          <div style={{ position: "fixed", inset: 0, background: "#00000080", zIndex: 100 }} />
+          <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", background: "#161616", border: "1px solid #c8f13540", borderRadius: "16px", padding: "28px", width: "360px", zIndex: 101 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
+              <div>
+                <h2 style={{ fontSize: "14px", fontWeight: 700, color: "#c8f135", margin: 0 }}>Deal Ganado 🎉</h2>
+                <p style={{ fontSize: "11px", color: "#444", margin: "4px 0 0" }}>Ingresá el monto del deal para confirmar</p>
+              </div>
+              <button onClick={() => setPendingDrop(null)} style={{ background: "transparent", border: "none", cursor: "pointer", color: "#444" }}><X size={16} /></button>
+            </div>
+            <div style={{ marginBottom: "20px" }}>
+              <p style={{ fontSize: "10px", fontWeight: 600, color: "#444", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>Monto del deal *</p>
+              <input autoFocus type="number" placeholder="0"
+                value={wonAmount} onChange={e => setWonAmount(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") confirmDrop(); }}
+                style={{ width: "100%", background: "#0d0d0d", border: "1px solid #c8f13540", borderRadius: "10px", padding: "10px 14px", color: "#c8f135", fontSize: "16px", fontWeight: 700, outline: "none", boxSizing: "border-box" }}
+              />
+            </div>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button onClick={() => setPendingDrop(null)}
+                style={{ flex: 1, padding: "9px", borderRadius: "8px", background: "transparent", border: "1px solid #2a2a2a", color: "#666", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>
+                Cancelar
+              </button>
+              <button onClick={confirmDrop} disabled={!wonAmount.trim()}
+                style={{ flex: 1, padding: "9px", borderRadius: "8px", background: wonAmount.trim() ? "#c8f135" : "#1a1a1a", border: "none", color: wonAmount.trim() ? "#0a0a0a" : "#333", fontSize: "12px", fontWeight: 700, cursor: wonAmount.trim() ? "pointer" : "default" }}>
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Lost modal ────────────────────────────────────────── */}
+      {pendingDrop && !pendingDrop.isWon && (
+        <>
+          <div style={{ position: "fixed", inset: 0, background: "#00000080", zIndex: 100 }} />
+          <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", background: "#161616", border: "1px solid #ef444440", borderRadius: "16px", padding: "28px", width: "360px", zIndex: 101 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
+              <div>
+                <h2 style={{ fontSize: "14px", fontWeight: 700, color: "#ef4444", margin: 0 }}>Deal Perdido</h2>
+                <p style={{ fontSize: "11px", color: "#444", margin: "4px 0 0" }}>Podés agregar un motivo (opcional)</p>
+              </div>
+              <button onClick={() => setPendingDrop(null)} style={{ background: "transparent", border: "none", cursor: "pointer", color: "#444" }}><X size={16} /></button>
+            </div>
+            <div style={{ marginBottom: "20px" }}>
+              <p style={{ fontSize: "10px", fontWeight: 600, color: "#444", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>Motivo de pérdida</p>
+              <textarea placeholder="Ej: Presupuesto insuficiente, eligió competidor..."
+                value={lostReason} onChange={e => setLostReason(e.target.value)}
+                rows={3}
+                style={{ width: "100%", background: "#0d0d0d", border: "1px solid #2a2a2a", borderRadius: "10px", padding: "10px 14px", color: "#f0f0f0", fontSize: "12px", outline: "none", boxSizing: "border-box", resize: "none", fontFamily: "inherit" }}
+              />
+            </div>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button onClick={() => setPendingDrop(null)}
+                style={{ flex: 1, padding: "9px", borderRadius: "8px", background: "transparent", border: "1px solid #2a2a2a", color: "#666", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>
+                Cancelar
+              </button>
+              <button onClick={confirmDrop}
+                style={{ flex: 1, padding: "9px", borderRadius: "8px", background: "#ef4444", border: "none", color: "#fff", fontSize: "12px", fontWeight: 700, cursor: "pointer" }}>
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </>
       )}
 
       {/* ── New Pipeline Modal ─────────────────────────────────── */}
@@ -544,7 +683,7 @@ export default function PipelinePage() {
               <p style={{ fontSize: "11px", color: "#ff4444", margin: "0 0 12px", background: "#ff444410", padding: "8px 12px", borderRadius: "8px", border: "1px solid #ff444430" }}>{pipelineError}</p>
             )}
             <p style={{ fontSize: "11px", color: "#444", margin: "0 0 20px" }}>
-              Se crearán 3 etapas por defecto: <span style={{ color: "#666" }}>Nuevo, En proceso, Cerrado</span>
+              Etapas por defecto: <span style={{ color: "#666" }}>Nuevo, En proceso, Cerrado, Ganado, Perdido</span>
             </p>
             <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
               <button onClick={() => setShowNewPipeline(false)}
@@ -569,8 +708,6 @@ export default function PipelinePage() {
               <h2 style={{ fontSize: "14px", fontWeight: 700, color: "#f0f0f0", margin: 0 }}>Agregar card</h2>
               <button onClick={() => setAddCardStageId(null)} style={{ background: "transparent", border: "none", cursor: "pointer", color: "#444" }}><X size={16} /></button>
             </div>
-
-            {/* Contact */}
             <div style={{ marginBottom: "16px" }}>
               <p style={{ fontSize: "10px", fontWeight: 600, color: "#444", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>Contacto</p>
               <input placeholder="Buscar..." value={contactSearch} onChange={e => setContactSearch(e.target.value)}
@@ -579,8 +716,7 @@ export default function PipelinePage() {
               <div style={{ maxHeight: "160px", overflowY: "auto", border: "1px solid #1a1a1a", borderRadius: "8px", background: "#0d0d0d" }}>
                 <button onClick={() => setAddCardContactId(null)}
                   style={{ width: "100%", padding: "8px 12px", background: addCardContactId === null ? "#1e1e1e" : "transparent", border: "none", color: addCardContactId === null ? "#f0f0f0" : "#444", fontSize: "12px", textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: "8px" }}>
-                  {addCardContactId === null && <Check size={11} color="#c8f135" />}
-                  Sin contacto
+                  {addCardContactId === null && <Check size={11} color="#c8f135" />} Sin contacto
                 </button>
                 {filteredContacts.slice(0, 40).map(c => {
                   const cname = [c.name, c.last_name].filter(Boolean).join(" ");
@@ -594,16 +730,12 @@ export default function PipelinePage() {
                 })}
               </div>
             </div>
-
-            {/* Value */}
             <div style={{ marginBottom: "16px" }}>
               <p style={{ fontSize: "10px", fontWeight: 600, color: "#444", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>Valor (opcional)</p>
               <input type="number" placeholder="0" value={addCardValue} onChange={e => setAddCardValue(e.target.value)}
                 style={{ width: "100%", background: "#0d0d0d", border: "1px solid #2a2a2a", borderRadius: "8px", padding: "8px 12px", color: "#f0f0f0", fontSize: "12px", outline: "none", boxSizing: "border-box" }}
               />
             </div>
-
-            {/* Agent */}
             <div style={{ marginBottom: "20px" }}>
               <p style={{ fontSize: "10px", fontWeight: 600, color: "#444", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>Agente (opcional)</p>
               <div style={{ border: "1px solid #1a1a1a", borderRadius: "8px", background: "#0d0d0d", overflow: "hidden" }}>
@@ -619,7 +751,6 @@ export default function PipelinePage() {
                 ))}
               </div>
             </div>
-
             <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
               <button onClick={() => setAddCardStageId(null)}
                 style={{ padding: "8px 16px", borderRadius: "8px", background: "transparent", border: "1px solid #2a2a2a", color: "#666", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>
@@ -639,7 +770,6 @@ export default function PipelinePage() {
         <>
           <div style={{ position: "fixed", inset: 0, zIndex: 98 }} onClick={() => { setShowAutomations(false); setShowAutoForm(false); }} />
           <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: "360px", background: "#111", borderLeft: "1px solid #1e1e1e", zIndex: 99, display: "flex", flexDirection: "column", boxShadow: "-8px 0 32px #00000060" }}>
-
             <div style={{ padding: "20px 20px 16px", borderBottom: "1px solid #1a1a1a", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
               <div>
                 <h3 style={{ fontSize: "13px", fontWeight: 700, color: "#f0f0f0", margin: 0 }}>Automatizaciones</h3>
@@ -647,12 +777,10 @@ export default function PipelinePage() {
               </div>
               <button onClick={() => { setShowAutomations(false); setShowAutoForm(false); }} style={{ background: "transparent", border: "none", cursor: "pointer", color: "#444" }}><X size={16} /></button>
             </div>
-
             <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
               {automations.length === 0 && !showAutoForm && (
                 <p style={{ fontSize: "12px", color: "#333", textAlign: "center", padding: "24px 0" }}>No hay automatizaciones</p>
               )}
-
               {automations.map(auto => {
                 const targetStage = stages.find(s => s.id === auto.stage_id);
                 const cfg = CHANNEL_CFG[auto.trigger_type];
@@ -660,17 +788,13 @@ export default function PipelinePage() {
                   <div key={auto.id} style={{ background: "#161616", border: "1px solid #1e1e1e", borderRadius: "12px", padding: "14px", marginBottom: "8px" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                        {/* Toggle switch */}
                         <button onClick={() => toggleAutomation(auto.id, !auto.active)}
                           style={{ width: "32px", height: "17px", borderRadius: "20px", border: "none", cursor: "pointer", padding: 0, position: "relative", background: auto.active ? "var(--accent)" : "#222", transition: "background 0.2s", flexShrink: 0 }}>
                           <div style={{ position: "absolute", top: "2px", left: auto.active ? "17px" : "2px", width: "13px", height: "13px", borderRadius: "50%", background: auto.active ? "#0a0a0a" : "#444", transition: "left 0.2s" }} />
                         </button>
-                        <span style={{ fontSize: "11px", fontWeight: 600, color: auto.active ? "#f0f0f0" : "#444" }}>
-                          {auto.active ? "Activa" : "Inactiva"}
-                        </span>
+                        <span style={{ fontSize: "11px", fontWeight: 600, color: auto.active ? "#f0f0f0" : "#444" }}>{auto.active ? "Activa" : "Inactiva"}</span>
                       </div>
-                      <button onClick={() => deleteAutomation(auto.id)}
-                        style={{ background: "transparent", border: "none", cursor: "pointer", color: "#333" }}
+                      <button onClick={() => deleteAutomation(auto.id)} style={{ background: "transparent", border: "none", cursor: "pointer", color: "#333" }}
                         onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = "#ff4444"}
                         onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = "#333"}>
                         <X size={13} />
@@ -681,46 +805,37 @@ export default function PipelinePage() {
                       {" "}<span style={{ color: "#333" }}>→</span>{" "}
                       <span style={{ color: "#f0f0f0" }}>Card en "{targetStage?.name ?? "?"}"</span>
                     </p>
-                    {auto.skip_if_exists && (
-                      <p style={{ fontSize: "10px", color: "#333", margin: 0 }}>Solo si no existe card en este pipeline</p>
-                    )}
+                    {auto.skip_if_exists && <p style={{ fontSize: "10px", color: "#333", margin: 0 }}>Solo si no existe card en este pipeline</p>}
                   </div>
                 );
               })}
-
-              {/* New automation form */}
               {showAutoForm && (
                 <div style={{ background: "#161616", border: "1px solid #c8f13530", borderRadius: "12px", padding: "16px" }}>
                   <p style={{ fontSize: "11px", fontWeight: 700, color: "#f0f0f0", margin: "0 0 14px" }}>Nueva automatización</p>
-
                   <div style={{ marginBottom: "12px" }}>
                     <p style={{ fontSize: "10px", fontWeight: 600, color: "#444", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>Disparador</p>
                     <div style={{ display: "flex", gap: "6px" }}>
                       {(["whatsapp", "instagram", "messenger"] as const).map(ch => (
                         <button key={ch} onClick={() => setAutoTrigger(ch)}
-                          style={{ flex: 1, padding: "6px 4px", borderRadius: "8px", border: "none", cursor: "pointer", fontSize: "10px", fontWeight: 700, transition: "all 0.1s", background: autoTrigger === ch ? (CHANNEL_CFG[ch].color + "20") : "#111", color: autoTrigger === ch ? CHANNEL_CFG[ch].color : "#444", outline: autoTrigger === ch ? `1px solid ${CHANNEL_CFG[ch].color}40` : "none" }}>
+                          style={{ flex: 1, padding: "6px 4px", borderRadius: "8px", border: "none", cursor: "pointer", fontSize: "10px", fontWeight: 700, background: autoTrigger === ch ? (CHANNEL_CFG[ch].color + "20") : "#111", color: autoTrigger === ch ? CHANNEL_CFG[ch].color : "#444", outline: autoTrigger === ch ? `1px solid ${CHANNEL_CFG[ch].color}40` : "none" }}>
                           {CHANNEL_CFG[ch].label}
                         </button>
                       ))}
                     </div>
                   </div>
-
                   <div style={{ marginBottom: "12px" }}>
                     <p style={{ fontSize: "10px", fontWeight: 600, color: "#444", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>Crear card en etapa</p>
                     <select value={autoStageId} onChange={e => setAutoStageId(e.target.value)}
                       style={{ width: "100%", background: "#0d0d0d", border: "1px solid #2a2a2a", borderRadius: "8px", padding: "8px 12px", color: "#f0f0f0", fontSize: "12px", outline: "none" }}>
-                      {stages.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      {freeStages.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                   </div>
-
                   <div style={{ marginBottom: "16px" }}>
                     <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
-                      <input type="checkbox" checked={autoSkip} onChange={e => setAutoSkip(e.target.checked)}
-                        style={{ accentColor: "var(--accent)", width: "13px", height: "13px" }} />
+                      <input type="checkbox" checked={autoSkip} onChange={e => setAutoSkip(e.target.checked)} style={{ accentColor: "var(--accent)", width: "13px", height: "13px" }} />
                       <span style={{ fontSize: "11px", color: "#888" }}>Solo si el contacto no tiene card en este pipeline</span>
                     </label>
                   </div>
-
                   <div style={{ display: "flex", gap: "8px" }}>
                     <button onClick={() => setShowAutoForm(false)}
                       style={{ flex: 1, padding: "7px", borderRadius: "8px", background: "transparent", border: "1px solid #2a2a2a", color: "#555", fontSize: "11px", fontWeight: 600, cursor: "pointer" }}>
@@ -734,7 +849,6 @@ export default function PipelinePage() {
                 </div>
               )}
             </div>
-
             {!showAutoForm && (
               <div style={{ padding: "16px", borderTop: "1px solid #1a1a1a", flexShrink: 0 }}>
                 <button onClick={() => setShowAutoForm(true)}
