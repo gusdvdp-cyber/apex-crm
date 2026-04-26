@@ -41,99 +41,107 @@ export async function POST(req: NextRequest) {
     }
 
     const saveMessage = async (externalId: string | null) => {
-      await supabase.from("messages").insert({
-        conversation_id,
-        external_id: externalId,
-        text: content,
-        from_type: "me",
-        sent_by: user?.id ?? null,
-      });
-      await supabase.from("conversations").update({
-        last_message: content,
-        updated_at: new Date().toISOString(),
-      }).eq("id", conversation_id);
+      await Promise.all([
+        supabase.from("messages").insert({
+          conversation_id,
+          external_id: externalId,
+          text: content,
+          from_type: "me",
+          sent_by: user?.id ?? null,
+        }),
+        supabase.from("conversations").update({
+          last_message: content,
+          updated_at: new Date().toISOString(),
+        }).eq("id", conversation_id),
+      ]);
     };
 
-    // ── WhatsApp via Evolution API ──────────────────────────────
-    if (conversation.channel === "whatsapp") {
+    const orgId = conversation.organization_id;
+    const channel = conversation.channel;
+
+    // ── WhatsApp via Meta Cloud API ────────────────────────────
+    if (channel === "whatsapp") {
       const phone = conversation.external_id?.replace(/^wa_/, "");
       if (!phone)
         return NextResponse.json({ error: "No hay número de WhatsApp" }, { status: 400 });
 
-      // Fetch org-level config
       const { data: integration } = await supabase
-        .from("org_integrations")
-        .select("config")
-        .eq("organization_id", conversation.organization_id)
-        .eq("channel", "whatsapp")
-        .eq("is_active", true)
-        .single();
+        .from("org_integrations").select("config")
+        .eq("organization_id", orgId).eq("channel", "whatsapp").eq("is_active", true).single();
 
       const cfg = integration?.config ?? {};
-      const evoUrl = cfg.evolution_url || process.env.EVOLUTION_API_URL;
-      const evoKey = cfg.evolution_api_key || process.env.EVOLUTION_API_KEY;
-      const evoInstance = cfg.evolution_instance || process.env.EVOLUTION_INSTANCE;
+      const phoneNumberId = cfg.phone_number_id;
+      const accessToken = cfg.access_token || process.env.META_PAGE_ACCESS_TOKEN;
 
-      if (!evoUrl || !evoKey || !evoInstance)
-        return NextResponse.json({ error: "WhatsApp no configurado para esta organización. Configurá las credenciales en Ajustes → Canales." }, { status: 400 });
+      if (!phoneNumberId || !accessToken)
+        return NextResponse.json({ error: "WhatsApp no configurado. Ir a Ajustes → Canales." }, { status: 400 });
 
-      const res = await fetch(`${evoUrl}/message/sendText/${evoInstance}`, {
+      const res = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "apikey": evoKey },
-        body: JSON.stringify({ number: phone, text: content }),
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to: phone,
+          type: "text",
+          text: { body: content },
+        }),
       });
 
       if (!res.ok) {
         const err = await res.text();
-        console.error("Evolution API error:", err);
+        console.error("WhatsApp send error:", err);
         return NextResponse.json({ error: "Error al enviar por WhatsApp", detail: err }, { status: 500 });
       }
 
       const result = await res.json();
-      await saveMessage(result?.key?.id ?? null);
+      await saveMessage(result?.messages?.[0]?.id ?? null);
       return NextResponse.json({ ok: true });
     }
 
-    // ── Instagram / Messenger via Chatwoot ──────────────────────
-    const chatwootConvId = conversation.external_id?.replace("chatwoot_", "");
-    if (!chatwootConvId)
-      return NextResponse.json({ error: "No hay ID de Chatwoot para esta conversación" }, { status: 400 });
+    // ── Instagram / Messenger via Meta Graph API ───────────────
+    if (channel === "instagram" || channel === "messenger") {
+      // external_id format: ig_{igsid} or fb_{psid}
+      const recipientId = conversation.external_id?.replace(/^(ig_|fb_)/, "");
+      if (!recipientId)
+        return NextResponse.json({ error: "No hay ID de destinatario" }, { status: 400 });
 
-    // Fetch org-level config
-    const { data: integration } = await supabase
-      .from("org_integrations")
-      .select("config")
-      .eq("organization_id", conversation.organization_id)
-      .eq("channel", "chatwoot")
-      .eq("is_active", true)
-      .single();
+      const { data: integration } = await supabase
+        .from("org_integrations").select("config")
+        .eq("organization_id", orgId).eq("channel", "meta").eq("is_active", true).single();
 
-    const cfg = integration?.config ?? {};
-    const cwUrl = cfg.chatwoot_url || process.env.CHATWOOT_URL;
-    const cwToken = cfg.chatwoot_api_token || process.env.CHATWOOT_API_TOKEN;
-    const cwAccount = cfg.chatwoot_account_id || process.env.CHATWOOT_ACCOUNT_ID;
+      const cfg = integration?.config ?? {};
+      const pageAccessToken = cfg.page_access_token || process.env.META_PAGE_ACCESS_TOKEN || process.env.META_IG_ACCESS_TOKEN;
 
-    if (!cwUrl || !cwToken || !cwAccount)
-      return NextResponse.json({ error: "Instagram/Messenger no configurado para esta organización. Configurá las credenciales en Ajustes → Canales." }, { status: 400 });
+      if (!pageAccessToken)
+        return NextResponse.json({ error: "Instagram/Messenger no configurado. Ir a Ajustes → Canales." }, { status: 400 });
 
-    const cwRes = await fetch(
-      `${cwUrl}/api/v1/accounts/${cwAccount}/conversations/${chatwootConvId}/messages`,
-      {
+      const res = await fetch("https://graph.facebook.com/v20.0/me/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "api_access_token": cwToken },
-        body: JSON.stringify({ content, message_type: "outgoing", private: false }),
-      }
-    );
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${pageAccessToken}`,
+        },
+        body: JSON.stringify({
+          recipient: { id: recipientId },
+          message: { text: content },
+        }),
+      });
 
-    if (!cwRes.ok) {
-      const err = await cwRes.text();
-      console.error("Chatwoot error:", err);
-      return NextResponse.json({ error: "Error al enviar por Chatwoot", detail: err }, { status: 500 });
+      if (!res.ok) {
+        const err = await res.text();
+        console.error("Meta send error:", err);
+        return NextResponse.json({ error: "Error al enviar mensaje", detail: err }, { status: 500 });
+      }
+
+      const result = await res.json();
+      await saveMessage(result?.message_id ?? null);
+      return NextResponse.json({ ok: true });
     }
 
-    const result = await cwRes.json();
-    await saveMessage(String(result.id) ?? null);
-    return NextResponse.json({ ok: true, message_id: result.id });
+    return NextResponse.json({ error: `Canal '${channel}' no soportado` }, { status: 400 });
 
   } catch (err) {
     console.error("Send error:", err);
