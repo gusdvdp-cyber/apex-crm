@@ -17,6 +17,12 @@ interface Contact {
   budget: string | null;
   avatar_url: string | null;
   external_id: string | null;
+  assigned_to: string | null;
+}
+
+interface AgentProfile {
+  id: string;
+  display_name: string | null;
 }
 
 interface CustomFieldDef {
@@ -172,6 +178,55 @@ function AvatarImage({ contactId, avatarUrl, name, size }: {
   );
 }
 
+// ── Agent dropdown ───────────────────────────────────────────
+function AgentDropdown({ agents, value, onSave }: { agents: AgentProfile[]; value: string | null; onSave: (id: string | null) => void }) {
+  const [open, setOpen] = useState(false);
+  const selected = agents.find(a => a.id === value);
+  const initials = (name: string) => name.split(" ").filter(Boolean).map(n => n[0]).join("").slice(0, 2).toUpperCase();
+
+  return (
+    <div style={{ position: "relative" }}>
+      <div onClick={() => setOpen(v => !v)}
+        style={{ display: "flex", alignItems: "center", gap: "10px", padding: "9px 12px", background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: "8px", cursor: "pointer", minHeight: "40px", transition: "border-color 0.1s" }}
+        onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = "#2a2a2a"}
+        onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = "#1e1e1e"}
+      >
+        {selected ? (
+          <>
+            <div style={{ width: "20px", height: "20px", borderRadius: "50%", background: "#c8f13520", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "8px", fontWeight: 700, color: "#c8f135", flexShrink: 0 }}>
+              {initials(selected.display_name ?? "?")}
+            </div>
+            <span style={{ fontSize: "13px", color: "#f0f0f0", flex: 1 }}>{selected.display_name}</span>
+          </>
+        ) : (
+          <span style={{ fontSize: "13px", color: "#333", flex: 1 }}>Sin asignar</span>
+        )}
+        <ChevronDown size={12} color="#444" style={{ flexShrink: 0 }} />
+      </div>
+      {open && (
+        <>
+          <div style={{ position: "fixed", inset: 0, zIndex: 49 }} onClick={() => setOpen(false)} />
+          <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, background: "#161616", border: "1px solid #222", borderRadius: "10px", padding: "4px", zIndex: 50 }}>
+            <button onClick={() => { onSave(null); setOpen(false); }}
+              style={{ width: "100%", padding: "7px 10px", background: "transparent", border: "none", color: "#c8541a", fontSize: "12px", cursor: "pointer", textAlign: "left", borderRadius: "7px" }}>
+              Sin asignar
+            </button>
+            {agents.map(a => (
+              <button key={a.id} onClick={() => { onSave(a.id); setOpen(false); }}
+                style={{ width: "100%", padding: "7px 10px", background: value === a.id ? "#1e1e1e" : "transparent", border: "none", color: "#f0f0f0", fontSize: "12px", cursor: "pointer", textAlign: "left", borderRadius: "7px", display: "flex", alignItems: "center", gap: "8px" }}>
+                <div style={{ width: "18px", height: "18px", borderRadius: "50%", background: "#2a2a2a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "7px", fontWeight: 700, color: "#c8f135", flexShrink: 0 }}>
+                  {initials(a.display_name ?? "?")}
+                </div>
+                {a.display_name ?? a.id.slice(0, 8)}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── WhatsApp SVG icon ─────────────────────────────────────────
 const WaIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="#25D366" style={{ flexShrink: 0 }}>
@@ -187,6 +242,7 @@ export default function ContactDetailPage() {
 
   const [contact, setContact] = useState<Contact | null>(null);
   const [orgId, setOrgId] = useState<string | null>(null);
+  const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [customDefs, setCustomDefs] = useState<CustomFieldDef[]>([]);
   const [customValues, setCustomValues] = useState<CustomFieldValue[]>([]);
   const [loading, setLoading] = useState(true);
@@ -212,15 +268,17 @@ export default function ContactDetailPage() {
       if (!profile) return;
       setOrgId(profile.organization_id);
 
-      const [{ data: c }, { data: defs }, { data: vals }] = await Promise.all([
-        supabase.from("contacts").select("id, name, last_name, phone, email, company, dni, address, budget, avatar_url, external_id").eq("id", id).single(),
+      const [{ data: c }, { data: defs }, { data: vals }, { data: ag }] = await Promise.all([
+        supabase.from("contacts").select("id, name, last_name, phone, email, company, dni, address, budget, avatar_url, external_id, assigned_to").eq("id", id).single(),
         supabase.from("custom_field_definitions").select("*").eq("organization_id", profile.organization_id).order("created_at"),
         supabase.from("custom_field_values").select("*").eq("contact_id", id),
+        supabase.from("profiles").select("id, display_name").eq("organization_id", profile.organization_id),
       ]);
 
       if (c) setContact(c as Contact);
       setCustomDefs((defs as CustomFieldDef[]) ?? []);
       setCustomValues((vals as CustomFieldValue[]) ?? []);
+      setAgents((ag as AgentProfile[]) ?? []);
     } finally {
       setLoading(false);
     }
@@ -230,6 +288,15 @@ export default function ContactDetailPage() {
     const supabase = createClient();
     await supabase.from("contacts").update({ [field]: value }).eq("id", id);
     setContact(prev => prev ? { ...prev, [field]: value } : prev);
+  };
+
+  const saveAssignedTo = async (agentId: string | null) => {
+    const supabase = createClient();
+    await Promise.all([
+      supabase.from("contacts").update({ assigned_to: agentId }).eq("id", id),
+      supabase.from("conversations").update({ assigned_to: agentId }).eq("contact_id", id),
+    ]);
+    setContact(prev => prev ? { ...prev, assigned_to: agentId } : prev);
   };
 
   const saveCustomValue = async (fieldId: string, value: string) => {
@@ -357,6 +424,10 @@ export default function ContactDetailPage() {
             <EditableField label="Empresa" value={contact.company ?? ""} onSave={v => saveField("company", v)} />
             <EditableField label="Dirección" value={contact.address ?? ""} onSave={v => saveField("address", v)} />
             <EditableField label="Presupuesto de Interés" value={contact.budget ?? ""} onSave={v => saveField("budget", v)} />
+            <div style={{ gridColumn: "1 / -1" }}>
+              <p style={{ fontSize: "10px", fontWeight: 600, color: "#444", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 6px" }}>Usuario Responsable</p>
+              <AgentDropdown agents={agents} value={contact.assigned_to} onSave={saveAssignedTo} />
+            </div>
           </div>
         </div>
 

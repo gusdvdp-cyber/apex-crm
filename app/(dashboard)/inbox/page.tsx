@@ -50,7 +50,7 @@ interface Conversation {
   updated_at: string;
   external_id: string | null;
   assigned_to: string | null;
-  contacts?: { id: string; name: string; phone: string | null; email: string | null } | null;
+  contacts?: { id: string; name: string; phone: string | null; email: string | null; avatar_url: string | null } | null;
   agent?: AgentProfile | null;
 }
 
@@ -141,6 +141,16 @@ function ResizeDivider({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => 
       <div style={{ width: "1px", height: "100%", background: hover ? "#c8f13560" : "#1a1a1a", transition: "background 0.15s" }} />
     </div>
   );
+}
+
+function ContactAvatar({ avatarUrl, contactId, name, size }: { avatarUrl: string | null; contactId: string; name: string; size: number }) {
+  const [failed, setFailed] = useState(false);
+  const initials = name.split(" ").filter(Boolean).map(n => n[0]).join("").slice(0, 2).toUpperCase() || "?";
+  const src = !failed && (avatarUrl || `https://picsum.photos/seed/${contactId}/200/200`);
+  if (!src) return (
+    <div style={{ width: size, height: size, borderRadius: "50%", background: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.3, fontWeight: 700, color: "#f0f0f0", flexShrink: 0 }}>{initials}</div>
+  );
+  return <img src={src} alt={name} style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} onError={() => setFailed(true)} />;
 }
 
 const mkInitials = (name: string) => name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
@@ -246,7 +256,7 @@ export default function InboxPage() {
     const supabase = createClient();
     const { data } = await supabase
       .from("conversations")
-      .select("*, contacts(id, name, phone, email), agent:profiles!assigned_to(id, display_name, avatar_url)")
+      .select("*, contacts(id, name, phone, email, avatar_url), agent:profiles!assigned_to(id, display_name, avatar_url)")
       .eq("organization_id", oid)
       .order("updated_at", { ascending: false });
     const convs = (data as Conversation[]) ?? [];
@@ -421,9 +431,7 @@ export default function InboxPage() {
                 onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = isMine ? "#c8f1350a" : "transparent"; }}
               >
                 <div style={{ position: "relative", flexShrink: 0 }}>
-                  <div style={{ width: "34px", height: "34px", borderRadius: "50%", background: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: "#f0f0f0" }}>
-                    {mkInitials(name)}
-                  </div>
+                  <ContactAvatar avatarUrl={conv.contacts?.avatar_url ?? null} contactId={conv.id} name={name} size={34} />
                   {conv.is_online && <div style={{ position: "absolute", bottom: 0, right: 0, width: "8px", height: "8px", borderRadius: "50%", background: "#c8f135", border: "2px solid #0d0d0d" }} />}
                   <div style={{ position: "absolute", bottom: "-2px", right: "-4px" }}>
                     <ChannelIcon channel={conv.channel} size={8} />
@@ -483,9 +491,7 @@ export default function InboxPage() {
 
           {/* Avatar */}
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "20px 16px 16px", borderBottom: "1px solid #1a1a1a" }}>
-            <div style={{ width: "48px", height: "48px", borderRadius: "50%", background: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "15px", fontWeight: 700, color: "#f0f0f0", marginBottom: "8px" }}>
-              {mkInitials(contactName(selected))}
-            </div>
+            <ContactAvatar avatarUrl={selected.contacts?.avatar_url ?? null} contactId={selected.id} name={contactName(selected)} size={48} />
             <p style={{ fontSize: "13px", fontWeight: 700, color: "#f0f0f0", margin: "0 0 2px", textAlign: "center" }}>{contactName(selected)}</p>
             <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
               <ChannelIcon channel={selected.channel} size={9} />
@@ -556,9 +562,7 @@ export default function InboxPage() {
               </button>
             )}
             <div style={{ position: "relative", flexShrink: 0 }}>
-              <div style={{ width: "32px", height: "32px", borderRadius: "50%", background: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: "#f0f0f0" }}>
-                {mkInitials(contactName(selected))}
-              </div>
+              <ContactAvatar avatarUrl={selected.contacts?.avatar_url ?? null} contactId={selected.id} name={contactName(selected)} size={32} />
               <div style={{ position: "absolute", bottom: "-2px", right: "-4px" }}>
                 <ChannelIcon channel={selected.channel} size={8} />
               </div>
