@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Search, Plus, Filter } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -15,8 +15,27 @@ interface Contact {
   avatar_url: string | null;
 }
 
-const mkInitials = (name: string) =>
-  name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
+function AvatarImage({ contactId, avatarUrl, name, size }: {
+  contactId: string; avatarUrl: string | null; name: string; size: number;
+}) {
+  const [failed, setFailed] = useState(false);
+  const initials = name.split(" ").filter(Boolean).map(n => n[0]).join("").slice(0, 2).toUpperCase() || "?";
+  const src = !failed && (avatarUrl || `https://picsum.photos/seed/${contactId}/200/200`);
+
+  if (!src) {
+    return (
+      <div style={{ width: size, height: size, borderRadius: "50%", background: "#1e1e1e", display: "flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.3, fontWeight: 700, color: "#f0f0f0", flexShrink: 0 }}>
+        {initials}
+      </div>
+    );
+  }
+  return (
+    <img src={src} alt={name}
+      style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", display: "block", flexShrink: 0 }}
+      onError={() => setFailed(true)}
+    />
+  );
+}
 
 export default function ContactosPage() {
   const router = useRouter();
@@ -111,13 +130,7 @@ export default function ContactosPage() {
                   >
                     <td style={{ padding: "12px 24px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                        {contact.avatar_url ? (
-                          <img src={contact.avatar_url} alt={fullName}
-                            style={{ width: "32px", height: "32px", borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
-                        ) : (
-                          <img src={`https://picsum.photos/seed/${contact.id}/64/64`} alt={fullName}
-                            style={{ width: "32px", height: "32px", borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
-                        )}
+                        <AvatarImage contactId={contact.id} avatarUrl={contact.avatar_url} name={fullName} size={32} />
                         <div>
                           <p style={{ fontSize: "12px", fontWeight: 600, color: "#f0f0f0", margin: 0 }}>{fullName || "Sin nombre"}</p>
                           {contact.email && <p style={{ fontSize: "10px", color: "#444", margin: 0 }}>{contact.email}</p>}

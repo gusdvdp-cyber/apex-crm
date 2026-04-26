@@ -149,6 +149,29 @@ function MultiSelectField({ def, value, onSave }: { def: CustomFieldDef; value: 
   );
 }
 
+// ── Avatar con fallback a iniciales ──────────────────────────
+function AvatarImage({ contactId, avatarUrl, name, size }: {
+  contactId: string; avatarUrl: string | null; name: string; size: number;
+}) {
+  const [failed, setFailed] = useState(false);
+  const initials = name.split(" ").filter(Boolean).map(n => n[0]).join("").slice(0, 2).toUpperCase() || "?";
+  const src = !failed && (avatarUrl || `https://picsum.photos/seed/${contactId}/200/200`);
+
+  if (!src) {
+    return (
+      <div style={{ width: size, height: size, borderRadius: "50%", background: "#1e1e1e", display: "flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.22, fontWeight: 700, color: "#f0f0f0", flexShrink: 0 }}>
+        {initials}
+      </div>
+    );
+  }
+  return (
+    <img src={src} alt={name}
+      style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", display: "block", flexShrink: 0 }}
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 // ── WhatsApp SVG icon ─────────────────────────────────────────
 const WaIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="#25D366" style={{ flexShrink: 0 }}>
@@ -226,14 +249,17 @@ export default function ContactDetailPage() {
     const file = e.target.files?.[0];
     if (!file || !contact) return;
     setUploading(true);
-    const ext = file.name.split(".").pop();
+    const ext = file.name.split(".").pop() ?? "jpg";
     const path = `${contact.id}.${ext}`;
     const supabase = createClient();
     const { error } = await supabase.storage.from("contact-avatars").upload(path, file, { upsert: true });
-    if (!error) {
+    if (error) {
+      console.error("Avatar upload error:", error.message);
+    } else {
       const { data } = supabase.storage.from("contact-avatars").getPublicUrl(path);
-      await supabase.from("contacts").update({ avatar_url: data.publicUrl }).eq("id", id);
-      setContact(prev => prev ? { ...prev, avatar_url: data.publicUrl } : prev);
+      const publicUrl = `${data.publicUrl}?t=${Date.now()}`;
+      await supabase.from("contacts").update({ avatar_url: publicUrl }).eq("id", id);
+      setContact(prev => prev ? { ...prev, avatar_url: publicUrl } : prev);
     }
     setUploading(false);
     e.target.value = "";
@@ -273,7 +299,6 @@ export default function ContactDetailPage() {
     </div>
   );
 
-  const avatarSrc = contact.avatar_url || `https://picsum.photos/seed/${contact.id}/200/200`;
   const fullName = [contact.name, contact.last_name].filter(Boolean).join(" ");
 
   return (
@@ -294,10 +319,9 @@ export default function ContactDetailPage() {
         <div style={{ display: "flex", alignItems: "center", gap: "24px", marginBottom: "32px" }}>
           {/* Avatar */}
           <div style={{ position: "relative", flexShrink: 0 }}>
-            <img src={avatarSrc} alt={fullName}
-              style={{ width: "88px", height: "88px", borderRadius: "50%", objectFit: "cover", display: "block", cursor: "pointer", border: "2px solid #1e1e1e" }}
-              onClick={() => fileInputRef.current?.click()}
-            />
+            <div onClick={() => fileInputRef.current?.click()} style={{ cursor: "pointer", border: "2px solid #1e1e1e", borderRadius: "50%" }}>
+              <AvatarImage contactId={contact.id} avatarUrl={contact.avatar_url} name={fullName} size={88} />
+            </div>
             {uploading && (
               <div style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "#00000090", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <div style={{ width: "20px", height: "20px", border: "2px solid #333", borderTopColor: "var(--accent)", borderRadius: "50%", animation: "spin 0.6s linear infinite" }} />
