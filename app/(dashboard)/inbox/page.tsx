@@ -431,7 +431,7 @@ export default function InboxPage() {
                 onMouseLeave={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = isMine ? "#c8f1350a" : "transparent"; }}
               >
                 <div style={{ position: "relative", flexShrink: 0 }}>
-                  <ContactAvatar avatarUrl={conv.contacts?.avatar_url ?? null} contactId={conv.id} name={name} size={34} />
+                  <ContactAvatar avatarUrl={conv.contacts?.avatar_url ?? null} contactId={conv.contacts?.id ?? conv.id} name={name} size={34} />
                   {conv.is_online && <div style={{ position: "absolute", bottom: 0, right: 0, width: "8px", height: "8px", borderRadius: "50%", background: "#c8f135", border: "2px solid #0d0d0d" }} />}
                   <div style={{ position: "absolute", bottom: "-2px", right: "-4px" }}>
                     <ChannelIcon channel={conv.channel} size={8} />
@@ -491,7 +491,7 @@ export default function InboxPage() {
 
           {/* Avatar */}
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "20px 16px 16px", borderBottom: "1px solid #1a1a1a" }}>
-            <ContactAvatar avatarUrl={selected.contacts?.avatar_url ?? null} contactId={selected.id} name={contactName(selected)} size={48} />
+            <ContactAvatar avatarUrl={selected.contacts?.avatar_url ?? null} contactId={selected.contacts?.id ?? selected.id} name={contactName(selected)} size={48} />
             <p style={{ fontSize: "13px", fontWeight: 700, color: "#f0f0f0", margin: "0 0 2px", textAlign: "center" }}>{contactName(selected)}</p>
             <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
               <ChannelIcon channel={selected.channel} size={9} />
@@ -562,7 +562,7 @@ export default function InboxPage() {
               </button>
             )}
             <div style={{ position: "relative", flexShrink: 0 }}>
-              <ContactAvatar avatarUrl={selected.contacts?.avatar_url ?? null} contactId={selected.id} name={contactName(selected)} size={32} />
+              <ContactAvatar avatarUrl={selected.contacts?.avatar_url ?? null} contactId={selected.contacts?.id ?? selected.id} name={contactName(selected)} size={32} />
               <div style={{ position: "absolute", bottom: "-2px", right: "-4px" }}>
                 <ChannelIcon channel={selected.channel} size={8} />
               </div>
