@@ -146,7 +146,7 @@ function ResizeDivider({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => 
 function ContactAvatar({ avatarUrl, contactId, name, size }: { avatarUrl: string | null; contactId: string; name: string; size: number }) {
   const [failed, setFailed] = useState(false);
   const initials = name.split(" ").filter(Boolean).map(n => n[0]).join("").slice(0, 2).toUpperCase() || "?";
-  const src = !failed && (avatarUrl || `https://picsum.photos/seed/${contactId}/200/200`);
+  const src = !failed && avatarUrl || null;
   if (!src) return (
     <div style={{ width: size, height: size, borderRadius: "50%", background: "#1a1a1a", display: "flex", alignItems: "center", justifyContent: "center", fontSize: size * 0.3, fontWeight: 700, color: "#f0f0f0", flexShrink: 0 }}>{initials}</div>
   );

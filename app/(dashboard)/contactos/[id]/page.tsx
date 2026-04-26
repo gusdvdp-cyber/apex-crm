@@ -161,7 +161,7 @@ function AvatarImage({ contactId, avatarUrl, name, size }: {
 }) {
   const [failed, setFailed] = useState(false);
   const initials = name.split(" ").filter(Boolean).map(n => n[0]).join("").slice(0, 2).toUpperCase() || "?";
-  const src = !failed && (avatarUrl || `https://picsum.photos/seed/${contactId}/200/200`);
+  const src = !failed && avatarUrl || null;
 
   if (!src) {
     return (
@@ -417,7 +417,6 @@ export default function ContactDetailPage() {
           <p style={{ fontSize: "10px", fontWeight: 700, color: "#333", textTransform: "uppercase", letterSpacing: "0.12em", margin: "0 0 20px" }}>Información</p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
             <EditableField label="Nombre" value={contact.name ?? ""} onSave={v => saveField("name", v)} />
-            <EditableField label="Apellido" value={contact.last_name ?? ""} onSave={v => saveField("last_name", v)} />
             <EditableField label="WhatsApp" value={contact.phone ?? ""} onSave={v => saveField("phone", v)} icon={<WaIcon />} />
             <EditableField label="Email" value={contact.email ?? ""} onSave={v => saveField("email", v)} />
             <EditableField label="DNI" value={contact.dni ?? ""} onSave={v => saveField("dni", v)} />
