@@ -372,7 +372,7 @@ export default function InboxPage() {
     const supabase = createClient();
     const path = `outbound/${orgId}/${Date.now()}.ogg`;
     const { error } = await supabase.storage.from("media").upload(path, blob, { contentType: "audio/ogg", upsert: true });
-    if (error) { console.error("Audio upload error:", error.message); setUploading(false); return; }
+    if (error) { console.error("Audio upload error:", error.message); alert("Error al subir audio: " + error.message); setUploading(false); return; }
     const { data: urlData } = supabase.storage.from("media").getPublicUrl(path);
     const res = await fetch("/api/messages/send", {
       method: "POST",
@@ -422,7 +422,7 @@ export default function InboxPage() {
     const ext = file.name.split(".").pop() ?? "bin";
     const path = `outbound/${orgId}/${Date.now()}.${ext}`;
     const { error } = await supabase.storage.from("media").upload(path, file, { upsert: true });
-    if (error) { console.error("Upload error:", error.message); setUploading(false); return; }
+    if (error) { console.error("Upload error:", error.message); alert("Error al subir archivo: " + error.message); setUploading(false); return; }
 
     const { data: urlData } = supabase.storage.from("media").getPublicUrl(path);
     const mediaType = file.type.startsWith("image") ? "image" : "audio";
