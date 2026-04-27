@@ -62,6 +62,13 @@ interface Conversation {
   agent?: AgentProfile | null;
 }
 
+interface ToastNotif {
+  id: string;
+  convId: string;
+  name: string;
+  message: string;
+}
+
 interface WaTemplateComponent {
   type: "HEADER" | "BODY" | "FOOTER" | "BUTTONS";
   text?: string;
@@ -218,9 +225,13 @@ export default function InboxPage() {
   const [selectedTemplate, setSelectedTemplate] = useState<WaTemplate | null>(null);
   const [templateVars, setTemplateVars] = useState<string[]>([]);
   const [templateError, setTemplateError] = useState("");
+  const [toasts, setToasts] = useState<ToastNotif[]>([]);
+  const conversationsRef = useRef<Conversation[]>([]);
 
   // Deriva selected siempre fresco desde el array de conversations
   const selected = conversations.find(c => c.id === selectedId) ?? null;
+
+  useEffect(() => { conversationsRef.current = conversations; }, [conversations]);
 
   useEffect(() => { init(); }, []);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [timeline]);
@@ -264,6 +275,9 @@ export default function InboxPage() {
   }, []);
 
   const init = async () => {
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
     try {
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
@@ -335,9 +349,41 @@ export default function InboxPage() {
     const supabase = createClient();
     supabase.channel("inbox-msgs")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, payload => {
-        const msg = payload.new as Message & { conversation_id: string };
+        const msg = payload.new as Message & { conversation_id: string; from_type: string };
         if (msg.conversation_id === selectedIdRef.current) {
           setTimeline(prev => prev.find(i => i.type === "message" && i.data.id === msg.id) ? prev : [...prev, { type: "message", ts: msg.created_at, data: msg }]);
+        } else if (msg.from_type === "contact") {
+          const conv = conversationsRef.current.find(c => c.id === msg.conversation_id);
+          const name = conv?.contacts?.name ?? "Nuevo mensaje";
+          const text = msg.text ?? "";
+
+          // Sound
+          try {
+            const ctx = new AudioContext();
+            const t = ctx.currentTime;
+            [{ freq: 880, start: 0, end: 0.25 }, { freq: 1108, start: 0.18, end: 0.55 }].forEach(({ freq, start, end }) => {
+              const osc = ctx.createOscillator();
+              const g = ctx.createGain();
+              osc.connect(g); g.connect(ctx.destination);
+              osc.type = "sine"; osc.frequency.value = freq;
+              g.gain.setValueAtTime(0, t + start);
+              g.gain.linearRampToValueAtTime(0.22, t + start + 0.04);
+              g.gain.exponentialRampToValueAtTime(0.001, t + end);
+              osc.start(t + start); osc.stop(t + end);
+            });
+          } catch { /* autoplay blocked, ignore */ }
+
+          // Toast
+          const toastId = Math.random().toString(36).slice(2);
+          setToasts(prev => [...prev.slice(-2), { id: toastId, convId: msg.conversation_id, name, message: text }]);
+          setTimeout(() => setToasts(prev => prev.filter(t => t.id !== toastId)), 4500);
+
+          // Browser notification (solo si tab no visible)
+          if (typeof document !== "undefined" && document.hidden && typeof Notification !== "undefined" && Notification.permission === "granted") {
+            const n = new Notification(name, { body: text || "Nuevo mensaje", icon: "/favicon.ico", tag: msg.conversation_id });
+            n.onclick = () => { window.focus(); };
+            setTimeout(() => n.close(), 6000);
+          }
         }
         fetchConversations(oid);
       })
@@ -868,6 +914,39 @@ export default function InboxPage() {
         </div>
       )}
       </div>{/* /inbox-col-chat */}
+
+      {/* ── Toast notifications ────────────────────────────────── */}
+      <div style={{ position: "fixed", bottom: "20px", right: "20px", display: "flex", flexDirection: "column", gap: "8px", zIndex: 200, pointerEvents: "none" }}>
+        {toasts.map(toast => (
+          <div key={toast.id}
+            onClick={() => {
+              const conv = conversations.find(c => c.id === toast.convId);
+              if (conv) selectConversation(conv);
+              setToasts(prev => prev.filter(t => t.id !== toast.id));
+            }}
+            style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 14px", background: "#161616", border: "1px solid #2a2a2a", borderRadius: "14px", boxShadow: "0 8px 32px #00000080", minWidth: "260px", maxWidth: "320px", cursor: "pointer", pointerEvents: "auto", animation: "toastIn 0.2s ease" }}
+            onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = "#c8f13540"}
+            onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = "#2a2a2a"}
+          >
+            <div style={{ width: "36px", height: "36px", borderRadius: "50%", background: "#1e1e1e", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 700, color: "#c8f135", flexShrink: 0 }}>
+              {toast.name.split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase()}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ margin: "0 0 2px", fontSize: "12px", fontWeight: 700, color: "#f0f0f0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{toast.name}</p>
+              <p style={{ margin: 0, fontSize: "11px", color: "#666", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{toast.message || "Nuevo mensaje"}</p>
+            </div>
+            <button onClick={e => { e.stopPropagation(); setToasts(prev => prev.filter(t => t.id !== toast.id)); }}
+              style={{ background: "transparent", border: "none", cursor: "pointer", color: "#444", flexShrink: 0, padding: "2px" }}
+              onMouseEnter={e => (e.currentTarget as HTMLElement).style.color = "#888"}
+              onMouseLeave={e => (e.currentTarget as HTMLElement).style.color = "#444"}
+            >
+              <X size={12} />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <style>{`@keyframes toastIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }`}</style>
     </div>
   );
 }
