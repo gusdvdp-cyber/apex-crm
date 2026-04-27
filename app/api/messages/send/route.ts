@@ -82,25 +82,16 @@ export async function POST(req: NextRequest) {
 
       let waBody: Record<string, unknown>;
 
-      if (media_url && (media_type === "image" || media_type === "audio")) {
+      if (media_url && media_type === "image") {
         // Upload to Meta Media API to get a media_id
-        // Strip codec suffix (e.g. "audio/ogg;codecs=opus" → "audio/ogg")
-        const mimeType = (media_mime || (media_type === "image" ? "image/jpeg" : "audio/ogg")).split(";")[0];
-        const extMap: Record<string, string> = {
-          "audio/mpeg": "mp3", "audio/ogg": "ogg", "audio/mp4": "m4a",
-          "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp",
-        };
+        const mimeType = (media_mime || "image/jpeg").split(";")[0];
+        const extMap: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
         const ext = extMap[mimeType] ?? mimeType.split("/")[1] ?? "bin";
 
-        console.log(`[send] media upload: type=${mimeType} ext=${ext} url=${media_url}`);
-
         const fileRes = await fetch(media_url);
-        if (!fileRes.ok) {
-          console.error("[send] Failed to fetch media from storage:", fileRes.status);
-          return NextResponse.json({ error: "Error al descargar media de storage" }, { status: 500 });
-        }
+        if (!fileRes.ok)
+          return NextResponse.json({ error: "Error al descargar imagen de storage" }, { status: 500 });
         const fileBuffer = await fileRes.arrayBuffer();
-        console.log(`[send] downloaded ${fileBuffer.byteLength} bytes`);
 
         const form = new FormData();
         form.append("messaging_product", "whatsapp");
@@ -116,23 +107,15 @@ export async function POST(req: NextRequest) {
         if (!uploadRes.ok) {
           const err = await uploadRes.text();
           console.error("Meta media upload error:", err);
-          return NextResponse.json({ error: "Error al subir media a Meta", detail: err }, { status: 500 });
+          return NextResponse.json({ error: "Error al subir imagen a Meta", detail: err }, { status: 500 });
         }
 
         const { id: mediaId } = await uploadRes.json() as { id: string };
-        console.log(`[send] Meta media uploaded, mediaId=${mediaId}`);
 
-        if (media_type === "image") {
-          waBody = {
-            messaging_product: "whatsapp", to: phone, type: "image",
-            image: { id: mediaId, ...(content ? { caption: content } : {}) },
-          };
-        } else {
-          waBody = {
-            messaging_product: "whatsapp", to: phone, type: "audio",
-            audio: { id: mediaId },
-          };
-        }
+        waBody = {
+          messaging_product: "whatsapp", to: phone, type: "image",
+          image: { id: mediaId, ...(content ? { caption: content } : {}) },
+        };
       } else {
         waBody = {
           messaging_product: "whatsapp",

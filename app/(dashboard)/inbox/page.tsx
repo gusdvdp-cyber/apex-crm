@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
   Search, MessageCircle, Mail, Send, Paperclip,
-  Smile, UserCheck, Activity, ChevronDown, X, Mic,
+  Smile, UserCheck, Activity, ChevronDown, X,
 } from "lucide-react";
 
 type Channel = "whatsapp" | "instagram" | "messenger" | "gmail" | "outlook";
@@ -186,11 +186,6 @@ export default function InboxPage() {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
-  const [recording, setRecording] = useState(false);
-  const [recordingSeconds, setRecordingSeconds] = useState(0);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Deriva selected siempre fresco desde el array de conversations
   const selected = conversations.find(c => c.id === selectedId) ?? null;
@@ -366,90 +361,6 @@ export default function InboxPage() {
     setSending(false);
   };
 
-  const convertToMp3 = async (blob: Blob): Promise<Blob> => {
-    const { Mp3Encoder } = await import("lamejs");
-    const arrayBuffer = await blob.arrayBuffer();
-    const audioCtx = new AudioContext();
-    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-    await audioCtx.close();
-    const samples = audioBuffer.getChannelData(0);
-    const pcm = new Int16Array(samples.length);
-    for (let i = 0; i < samples.length; i++) pcm[i] = Math.max(-32768, Math.min(32767, samples[i] * 32768));
-    const encoder = new Mp3Encoder(1, audioBuffer.sampleRate, 128);
-    const parts: Int8Array[] = [];
-    const block = 1152;
-    for (let i = 0; i < pcm.length; i += block) {
-      const buf = encoder.encodeBuffer(pcm.subarray(i, i + block));
-      if (buf.length > 0) parts.push(buf);
-    }
-    const end = encoder.flush();
-    if (end.length > 0) parts.push(end);
-    return new Blob(parts.map(p => new Uint8Array(p.buffer as ArrayBuffer)), { type: "audio/mpeg" });
-  };
-
-  const uploadAndSendAudio = async (blob: Blob, mimeType: string) => {
-    if (!selected || !orgId) return;
-    setUploading(true);
-    const supabase = createClient();
-
-    // Convert non-OGG formats (webm from Chrome) to MP3 for WhatsApp compatibility
-    let finalBlob = blob;
-    let finalMime = mimeType;
-    if (!mimeType.includes("ogg") && !mimeType.includes("mp4") && !mimeType.includes("mpeg")) {
-      try {
-        finalBlob = await convertToMp3(blob);
-        finalMime = "audio/mpeg";
-      } catch (e) { console.error("MP3 conversion failed:", e); }
-    }
-
-    const ext = finalMime.includes("ogg") ? "ogg" : finalMime.includes("mpeg") ? "mp3" : "mp4";
-    const path = `outbound/${orgId}/${Date.now()}.${ext}`;
-    const { error } = await supabase.storage.from("media").upload(path, finalBlob, { contentType: finalMime, upsert: true });
-    if (error) { console.error("Audio upload error:", error.message); alert("Error al subir audio: " + error.message); setUploading(false); return; }
-    const { data: urlData } = supabase.storage.from("media").getPublicUrl(path);
-    const res = await fetch("/api/messages/send", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversation_id: selected.id, content: "", media_url: urlData.publicUrl, media_type: "audio", media_mime: finalMime }),
-    });
-    if (res.ok) { fetchTimeline(selected.id); if (orgId) fetchConversations(orgId); }
-    else { const j = await res.json().catch(() => ({})); alert("Error al enviar audio: " + (j.detail || j.error || "desconocido")); }
-    setUploading(false);
-  };
-
-  const startRecording = async () => {
-    if (recording || !selected) return;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // Prefer formats WhatsApp accepts: ogg/opus → mp4 → webm
-      const mimeType =
-        MediaRecorder.isTypeSupported("audio/ogg;codecs=opus") ? "audio/ogg;codecs=opus" :
-        MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" :
-        "audio/webm;codecs=opus";
-      const mr = new MediaRecorder(stream, { mimeType });
-      mediaRecorderRef.current = mr;
-      audioChunksRef.current = [];
-      mr.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
-      mr.onstop = () => {
-        stream.getTracks().forEach(t => t.stop());
-        const blob = new Blob(audioChunksRef.current, { type: mimeType });
-        uploadAndSendAudio(blob, mimeType);
-      };
-      mr.start();
-      setRecording(true);
-      setRecordingSeconds(0);
-      recordingTimerRef.current = setInterval(() => setRecordingSeconds(s => s + 1), 1000);
-    } catch { console.error("Mic permission denied"); }
-  };
-
-  const stopRecording = () => {
-    if (!recording || !mediaRecorderRef.current) return;
-    mediaRecorderRef.current.stop();
-    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
-    setRecording(false);
-    setRecordingSeconds(0);
-  };
-
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !selected || !orgId) return;
@@ -463,12 +374,11 @@ export default function InboxPage() {
     if (error) { console.error("Upload error:", error.message); alert("Error al subir archivo: " + error.message); setUploading(false); return; }
 
     const { data: urlData } = supabase.storage.from("media").getPublicUrl(path);
-    const mediaType = file.type.startsWith("image") ? "image" : "audio";
 
     const res = await fetch("/api/messages/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversation_id: selected.id, content: "", media_url: urlData.publicUrl, media_type: mediaType, media_mime: file.type }),
+      body: JSON.stringify({ conversation_id: selected.id, content: "", media_url: urlData.publicUrl, media_type: "image", media_mime: file.type }),
     });
     if (res.ok) {
       fetchTimeline(selected.id);
@@ -730,47 +640,21 @@ export default function InboxPage() {
 
           {/* Input */}
           <div style={{ padding: "14px 20px", background: "#0d0d0d", borderTop: "1px solid #1a1a1a", flexShrink: 0 }}>
-            <input ref={fileInputRef} type="file" accept="image/*,audio/*" onChange={handleFileSelect} style={{ display: "none" }} />
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", background: recording ? "#1a0505" : "#111", border: `1px solid ${recording ? "#ef4444" : sending || uploading ? "var(--accent)" : "#1e1e1e"}`, borderRadius: "14px", transition: "all 0.2s" }}>
-              <Paperclip size={14} color={uploading ? "var(--accent)" : "#555"} style={{ cursor: "pointer", flexShrink: 0 }} onClick={() => !recording && fileInputRef.current?.click()} />
-              {recording ? (
-                <>
-                  <div style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#ef4444", flexShrink: 0, animation: "pulse 1s ease-in-out infinite" }} />
-                  <span style={{ flex: 1, fontSize: "13px", color: "#ef4444" }}>
-                    Grabando... {String(Math.floor(recordingSeconds / 60)).padStart(2, "0")}:{String(recordingSeconds % 60).padStart(2, "0")}
-                  </span>
-                </>
-              ) : (
-                <input type="text" placeholder={uploading ? "Subiendo archivo..." : sending ? "Enviando..." : "Escribí un mensaje..."} value={newMessage}
-                  onChange={e => setNewMessage(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-                  disabled={sending || uploading}
-                  style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: sending ? "#666" : "#f0f0f0", fontSize: "13px" }} />
-              )}
-              {!recording && !newMessage.trim() ? (
-                <button
-                  onMouseDown={startRecording}
-                  onMouseUp={stopRecording}
-                  onMouseLeave={recording ? stopRecording : undefined}
-                  onTouchStart={startRecording}
-                  onTouchEnd={stopRecording}
-                  style={{ width: "30px", height: "30px", borderRadius: "8px", border: "none", background: "#1e1e1e", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}
-                >
-                  <Mic size={13} color="#666" />
-                </button>
-              ) : recording ? (
-                <button onClick={stopRecording} style={{ width: "30px", height: "30px", borderRadius: "8px", border: "none", background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
-                  <Send size={13} color="white" />
-                </button>
-              ) : (
-                <button onClick={sendMessage} disabled={sending || uploading}
-                  style={{ width: "30px", height: "30px", borderRadius: "8px", border: "none", background: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.15s", flexShrink: 0 }}>
-                  {sending
-                    ? <div style={{ width: "13px", height: "13px", border: "2px solid #333", borderTopColor: "var(--accent)", borderRadius: "50%", animation: "spin 0.6s linear infinite" }} />
-                    : <Send size={13} color="#0a0a0a" />
-                  }
-                </button>
-              )}
+            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileSelect} style={{ display: "none" }} />
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", background: "#111", border: `1px solid ${sending || uploading ? "var(--accent)" : "#1e1e1e"}`, borderRadius: "14px", transition: "all 0.2s" }}>
+              <Paperclip size={14} color={uploading ? "var(--accent)" : "#555"} style={{ cursor: "pointer", flexShrink: 0 }} onClick={() => fileInputRef.current?.click()} />
+              <input type="text" placeholder={uploading ? "Subiendo imagen..." : sending ? "Enviando..." : "Escribí un mensaje..."} value={newMessage}
+                onChange={e => setNewMessage(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                disabled={sending || uploading}
+                style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: sending ? "#666" : "#f0f0f0", fontSize: "13px" }} />
+              <button onClick={sendMessage} disabled={sending || uploading}
+                style={{ width: "30px", height: "30px", borderRadius: "8px", border: "none", background: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.15s", flexShrink: 0 }}>
+                {sending
+                  ? <div style={{ width: "13px", height: "13px", border: "2px solid #333", borderTopColor: "var(--accent)", borderRadius: "50%", animation: "spin 0.6s linear infinite" }} />
+                  : <Send size={13} color="#0a0a0a" />
+                }
+              </button>
             </div>
           </div>
         </div>
