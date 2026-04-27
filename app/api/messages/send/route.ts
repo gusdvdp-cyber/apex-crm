@@ -8,9 +8,22 @@ const admin = createAdminClient(
   { auth: { autoRefreshToken: false, persistSession: false } }
 );
 
+function digitsOnly(val: string | number): string {
+  const s = String(val);
+  let out = "";
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] >= "0" && s[i] <= "9") out += s[i];
+  }
+  return out;
+}
+
+function stripPrefix(s: string, prefix: string): string {
+  return s.startsWith(prefix) ? s.slice(prefix.length) : s;
+}
+
 async function findOrCreateConversation(orgId: string, phone: string | number): Promise<string | null> {
-  const cleanPhone = String(phone).replace(/\D/g, "");
-  const externalId = `wa_${cleanPhone}`;
+  const cleanPhone = digitsOnly(phone);
+  const externalId = "wa_" + cleanPhone;
 
   const { data: existing } = await admin
     .from("conversations").select("id").eq("organization_id", orgId).eq("external_id", externalId).single();
@@ -48,7 +61,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     let { conversation_id, content, media_url, media_type, media_mime, template_name, template_language, template_components, org_slug } = body;
-  let phone: string = String(body.phone ?? "");
+  let phone: string = digitsOnly(body.phone ?? "");
 
     if (!content && !media_url && !template_name)
       return NextResponse.json({ error: "Falta content, media_url o template_name" }, { status: 400 });
@@ -144,7 +157,7 @@ export async function POST(req: NextRequest) {
 
     // ── WhatsApp ───────────────────────────────────────────────
     if (channel === "whatsapp") {
-      const toPhone = conversation.external_id?.replace(/^wa_/, "");
+      const toPhone = stripPrefix(conversation.external_id ?? "", "wa_");
       if (!toPhone)
         return NextResponse.json({ error: "No hay número de WhatsApp" }, { status: 400 });
 
@@ -228,7 +241,8 @@ export async function POST(req: NextRequest) {
 
     // ── Instagram / Messenger ──────────────────────────────────
     if (channel === "instagram" || channel === "messenger") {
-      const recipientId = conversation.external_id?.replace(/^(ig_|fb_)/, "");
+      const extId = conversation.external_id ?? "";
+      const recipientId = extId.startsWith("ig_") ? extId.slice(3) : extId.startsWith("fb_") ? extId.slice(3) : extId;
       if (!recipientId)
         return NextResponse.json({ error: "No hay ID de destinatario" }, { status: 400 });
 
