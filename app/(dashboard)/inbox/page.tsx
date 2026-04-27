@@ -408,6 +408,7 @@ export default function InboxPage() {
   };
 
   const selectConversation = (conv: Conversation) => {
+    selectedIdRef.current = conv.id;
     setSelectedId(conv.id);
     setShowContactPanel(true);
     setShowAssignDropdown(false);
