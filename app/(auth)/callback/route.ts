@@ -30,5 +30,7 @@ export async function GET(request: NextRequest) {
     if (!error) return redirectResponse;
   }
 
-  return NextResponse.redirect(`${origin}/login`);
+  // No code → implicit flow (tokens come as hash fragments, handled client-side)
+  // Redirect to an intermediate client page that picks up the session from the hash
+  return NextResponse.redirect(`${origin}/auth/confirm?next=${encodeURIComponent(next)}`);
 }

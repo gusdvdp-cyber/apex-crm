@@ -44,7 +44,7 @@ export async function middleware(request: NextRequest) {
 
   const path = request.nextUrl.pathname;
   const isAuthPage = path.startsWith("/login");
-  const isCallback = path.startsWith("/auth/callback") || path.startsWith("/callback");
+  const isCallback = path.startsWith("/auth/callback") || path.startsWith("/callback") || path.startsWith("/auth/confirm");
   const isPublic = path.startsWith("/privacy") || path.startsWith("/terms") || path.startsWith("/set-password");
   const isApi = path.startsWith("/api");
 
