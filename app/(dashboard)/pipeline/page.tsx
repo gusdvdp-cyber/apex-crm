@@ -22,6 +22,16 @@ interface Automation {
 }
 interface AgentProfile { id: string; display_name: string | null; }
 interface Contact { id: string; name: string; last_name: string | null; }
+interface ContactDetail {
+  id: string; name: string; last_name: string | null;
+  phone: string | null; email: string | null; company: string | null;
+}
+interface CustomFieldDef {
+  id: string; name: string;
+  field_type: "text" | "select" | "multiselect" | "date" | "daterange";
+  options: string[] | null;
+}
+interface CustomFieldValue { id: string; field_id: string; value: string; }
 
 // ── Constants ──────────────────────────────────────────────────
 const COLORS = ["#c8f135", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"];
@@ -57,8 +67,9 @@ function MiniAvatar({ contact, size = 22 }: { contact: CardContact | null; size?
   return <img src={src} alt={name} style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} onError={() => setFailed(true)} />;
 }
 
-function KanbanCard({ card, dragging, agents, onReopen }: {
-  card: Card; dragging: boolean; agents: AgentProfile[]; onReopen?: () => void;
+function KanbanCard({ card, dragging, agents, onReopen, onDelete, onClick }: {
+  card: Card; dragging: boolean; agents: AgentProfile[];
+  onReopen?: () => void; onDelete?: () => void; onClick?: () => void;
 }) {
   const name = card.contacts ? [card.contacts.name, card.contacts.last_name].filter(Boolean).join(" ") : "Sin contacto";
   const agent = agents.find(a => a.id === card.assigned_to);
@@ -78,10 +89,29 @@ function KanbanCard({ card, dragging, agents, onReopen }: {
       borderRadius: "10px",
       opacity: isClosed ? 0.7 : (dragging ? 0.4 : 1),
       userSelect: "none", transition: "opacity 0.1s",
+      position: "relative", cursor: isClosed ? "default" : "pointer",
     }}
-      onMouseEnter={e => { if (!isClosed && !dragging) (e.currentTarget as HTMLElement).style.borderColor = "#2a2a2a"; }}
-      onMouseLeave={e => { if (!isClosed) (e.currentTarget as HTMLElement).style.borderColor = "#1e1e1e"; }}
+      onClick={onClick}
+      onMouseEnter={e => {
+        if (!isClosed && !dragging) (e.currentTarget as HTMLElement).style.borderColor = "#2a2a2a";
+        const btn = (e.currentTarget as HTMLElement).querySelector(".card-delete-btn") as HTMLElement | null;
+        if (btn) btn.style.opacity = "1";
+      }}
+      onMouseLeave={e => {
+        if (!isClosed) (e.currentTarget as HTMLElement).style.borderColor = "#1e1e1e";
+        const btn = (e.currentTarget as HTMLElement).querySelector(".card-delete-btn") as HTMLElement | null;
+        if (btn) btn.style.opacity = "0";
+      }}
     >
+      {onDelete && !isClosed && (
+        <button className="card-delete-btn" onClick={e => { e.stopPropagation(); onDelete(); }}
+          style={{ position: "absolute", top: "6px", right: "6px", width: "18px", height: "18px", borderRadius: "4px", background: "#1a1a1a", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: 0, transition: "opacity 0.15s", zIndex: 2 }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = "#ff444420"; (e.currentTarget as HTMLElement).style.color = "#ff4444"; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "#1a1a1a"; }}
+        >
+          <X size={10} color="#555" />
+        </button>
+      )}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
         {isClosed ? (
           <span style={{ fontSize: "9px", fontWeight: 700, padding: "2px 7px", borderRadius: "20px", background: isWon ? "#c8f13520" : "#ef444420", color: isWon ? "#c8f135" : "#ef4444", border: `1px solid ${isWon ? "#c8f13540" : "#ef444440"}` }}>
@@ -177,6 +207,15 @@ export default function PipelinePage() {
   const [autoStageId, setAutoStageId] = useState<string>("");
   const [autoSkip, setAutoSkip] = useState(true);
   const [savingAuto, setSavingAuto] = useState(false);
+
+  // Card detail panel
+  const [selectedCard, setSelectedCard] = useState<Card | null>(null);
+  const [panelContact, setPanelContact] = useState<ContactDetail | null>(null);
+  const [panelFields, setPanelFields] = useState<{ defs: CustomFieldDef[]; values: CustomFieldValue[] }>({ defs: [], values: [] });
+  const [loadingPanel, setLoadingPanel] = useState(false);
+
+  // Add card error
+  const [addCardError, setAddCardError] = useState<string | null>(null);
 
   useEffect(() => { init(); }, []);
   useEffect(() => {
@@ -332,7 +371,7 @@ export default function PipelinePage() {
 
   const openAddCard = async (stageId: string) => {
     setAddCardStageId(stageId);
-    setAddCardContactId(null); setAddCardValue(""); setAddCardAgent(null); setContactSearch("");
+    setAddCardContactId(null); setAddCardValue(""); setAddCardAgent(null); setContactSearch(""); setAddCardError(null);
     if (contacts.length === 0) {
       const supabase = createClient();
       const { data } = await supabase.from("contacts").select("id, name, last_name").order("name");
@@ -342,7 +381,19 @@ export default function PipelinePage() {
 
   const createCard = async () => {
     if (!addCardStageId || !activePipelineId) return;
+    setAddCardError(null);
     const supabase = createClient();
+
+    if (addCardContactId) {
+      const { data: existing } = await supabase
+        .from("pipeline_cards").select("id")
+        .eq("pipeline_id", activePipelineId).eq("contact_id", addCardContactId).maybeSingle();
+      if (existing) {
+        setAddCardError("Este contacto ya está en el pipeline");
+        return;
+      }
+    }
+
     const { data } = await supabase.from("pipeline_cards").insert({
       pipeline_id: activePipelineId, stage_id: addCardStageId,
       contact_id: addCardContactId,
@@ -351,6 +402,33 @@ export default function PipelinePage() {
     }).select("*, contacts(id, name, last_name, avatar_url)").single();
     if (data) setCards(prev => [...prev, data as Card]);
     setAddCardStageId(null);
+  };
+
+  const deleteCard = async (cardId: string) => {
+    const supabase = createClient();
+    await supabase.from("pipeline_cards").delete().eq("id", cardId);
+    setCards(prev => prev.filter(c => c.id !== cardId));
+    if (selectedCard?.id === cardId) setSelectedCard(null);
+  };
+
+  const openCardPanel = async (card: Card) => {
+    setSelectedCard(card);
+    setShowAutomations(false);
+    if (!card.contact_id) {
+      setPanelContact(null);
+      setPanelFields({ defs: [], values: [] });
+      return;
+    }
+    setLoadingPanel(true);
+    const supabase = createClient();
+    const [{ data: contact }, { data: defs }, { data: values }] = await Promise.all([
+      supabase.from("contacts").select("id, name, last_name, phone, email, company").eq("id", card.contact_id).single(),
+      supabase.from("custom_field_definitions").select("*").eq("organization_id", orgId),
+      supabase.from("custom_field_values").select("*").eq("contact_id", card.contact_id),
+    ]);
+    setPanelContact((contact as ContactDetail) ?? null);
+    setPanelFields({ defs: (defs as CustomFieldDef[]) ?? [], values: (values as CustomFieldValue[]) ?? [] });
+    setLoadingPanel(false);
   };
 
   const createAutomation = async () => {
@@ -421,7 +499,7 @@ export default function PipelinePage() {
               <p style={{ fontSize: "10px", color: "#444", margin: 0, whiteSpace: "nowrap" }}>
                 {activeCards.length} activos{totalValue > 0 ? ` · $${totalValue.toLocaleString()}` : ""}
               </p>
-              <button onClick={() => setShowAutomations(true)}
+              <button onClick={() => { setShowAutomations(true); setSelectedCard(null); }}
                 style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 12px", borderRadius: "8px", background: "#c8f13510", border: "1px solid #c8f13530", color: "#c8f135", fontSize: "11px", fontWeight: 600, cursor: "pointer" }}
                 onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "#c8f13520"}
                 onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "#c8f13510"}
@@ -569,7 +647,14 @@ export default function PipelinePage() {
                           onDragEnd={() => { setDraggingCardId(null); setDragOverStageId(null); }}
                           style={{ cursor: isClosed ? "default" : "grab" }}
                         >
-                          <KanbanCard card={card} dragging={draggingCardId === card.id} agents={agents} onReopen={isClosed ? () => reopenCard(card.id) : undefined} />
+                          <KanbanCard
+                            card={card}
+                            dragging={draggingCardId === card.id}
+                            agents={agents}
+                            onReopen={isClosed ? () => reopenCard(card.id) : undefined}
+                            onDelete={!isClosed ? () => deleteCard(card.id) : undefined}
+                            onClick={() => openCardPanel(card)}
+                          />
                         </div>
                       );
                     })}
@@ -751,6 +836,9 @@ export default function PipelinePage() {
                 ))}
               </div>
             </div>
+            {addCardError && (
+              <p style={{ fontSize: "11px", color: "#ff4444", margin: "0 0 12px", background: "#ff444410", padding: "8px 12px", borderRadius: "8px", border: "1px solid #ff444430" }}>{addCardError}</p>
+            )}
             <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
               <button onClick={() => setAddCardStageId(null)}
                 style={{ padding: "8px 16px", borderRadius: "8px", background: "transparent", border: "1px solid #2a2a2a", color: "#666", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>
@@ -761,6 +849,106 @@ export default function PipelinePage() {
                 Agregar
               </button>
             </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Card Detail Panel ─────────────────────────────────── */}
+      {selectedCard && (
+        <>
+          <div style={{ position: "fixed", inset: 0, zIndex: 98 }} onClick={() => setSelectedCard(null)} />
+          <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: "340px", background: "#111", borderLeft: "1px solid #1e1e1e", zIndex: 99, display: "flex", flexDirection: "column", boxShadow: "-8px 0 32px #00000060" }}>
+            <div style={{ padding: "18px 18px 14px", borderBottom: "1px solid #1a1a1a", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <MiniAvatar contact={selectedCard.contacts} size={34} />
+                <div>
+                  <p style={{ fontSize: "13px", fontWeight: 700, color: "#f0f0f0", margin: 0 }}>
+                    {selectedCard.contacts ? [selectedCard.contacts.name, selectedCard.contacts.last_name].filter(Boolean).join(" ") : "Sin contacto"}
+                  </p>
+                  <p style={{ fontSize: "10px", color: "#444", margin: "2px 0 0" }}>
+                    {stages.find(s => s.id === selectedCard.stage_id)?.name ?? ""}
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setSelectedCard(null)} style={{ background: "transparent", border: "none", cursor: "pointer", color: "#444" }}><X size={16} /></button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
+              {/* Pipeline card info */}
+              <p style={{ fontSize: "10px", fontWeight: 700, color: "#444", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 10px" }}>Deal</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "20px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: "#0d0d0d", borderRadius: "8px", border: "1px solid #1a1a1a" }}>
+                  <span style={{ fontSize: "11px", color: "#555" }}>Valor</span>
+                  <span style={{ fontSize: "13px", fontWeight: 700, color: "#c8f135" }}>
+                    {selectedCard.value != null ? `$${Number(selectedCard.value).toLocaleString()}` : "—"}
+                  </span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: "#0d0d0d", borderRadius: "8px", border: "1px solid #1a1a1a" }}>
+                  <span style={{ fontSize: "11px", color: "#555" }}>Agente</span>
+                  <span style={{ fontSize: "12px", color: "#f0f0f0" }}>
+                    {agents.find(a => a.id === selectedCard.assigned_to)?.display_name ?? "Sin asignar"}
+                  </span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: "#0d0d0d", borderRadius: "8px", border: "1px solid #1a1a1a" }}>
+                  <span style={{ fontSize: "11px", color: "#555" }}>Creado</span>
+                  <span style={{ fontSize: "12px", color: "#888" }}>
+                    {new Date(selectedCard.created_at).toLocaleDateString("es-AR", { day: "numeric", month: "short", year: "numeric" })}
+                  </span>
+                </div>
+              </div>
+
+              {/* Contact info */}
+              {loadingPanel ? (
+                <p style={{ fontSize: "11px", color: "#444", textAlign: "center", padding: "16px 0" }}>Cargando...</p>
+              ) : panelContact ? (
+                <>
+                  <p style={{ fontSize: "10px", fontWeight: 700, color: "#444", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 10px" }}>Contacto</p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "20px" }}>
+                    {[
+                      { label: "Teléfono", val: panelContact.phone },
+                      { label: "Email", val: panelContact.email },
+                      { label: "Empresa", val: panelContact.company },
+                    ].map(({ label, val }) => (
+                      <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: "#0d0d0d", borderRadius: "8px", border: "1px solid #1a1a1a" }}>
+                        <span style={{ fontSize: "11px", color: "#555" }}>{label}</span>
+                        <span style={{ fontSize: "12px", color: val ? "#f0f0f0" : "#333" }}>{val || "—"}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {panelFields.defs.length > 0 && (
+                    <>
+                      <p style={{ fontSize: "10px", fontWeight: 700, color: "#444", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 10px" }}>Campos personalizados</p>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                        {panelFields.defs.map(def => {
+                          const val = panelFields.values.find(v => v.field_id === def.id)?.value ?? "";
+                          return (
+                            <div key={def.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "8px 12px", background: "#0d0d0d", borderRadius: "8px", border: "1px solid #1a1a1a", gap: "10px" }}>
+                              <span style={{ fontSize: "11px", color: "#555", flexShrink: 0 }}>{def.name}</span>
+                              <span style={{ fontSize: "12px", color: val ? "#f0f0f0" : "#333", textAlign: "right", wordBreak: "break-word" }}>{val || "—"}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : selectedCard.contact_id ? null : (
+                <p style={{ fontSize: "11px", color: "#333", textAlign: "center", padding: "12px 0" }}>Sin contacto asignado</p>
+              )}
+            </div>
+
+            {panelContact && (
+              <div style={{ padding: "14px 16px", borderTop: "1px solid #1a1a1a", flexShrink: 0 }}>
+                <a href={`/contactos/${panelContact.id}`}
+                  style={{ display: "block", width: "100%", padding: "9px", borderRadius: "10px", background: "#c8f13510", border: "1px solid #c8f13530", color: "#c8f135", fontSize: "12px", fontWeight: 600, cursor: "pointer", textAlign: "center", textDecoration: "none" }}
+                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "#c8f13520"}
+                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "#c8f13510"}
+                >
+                  Ver contacto completo →
+                </a>
+              </div>
+            )}
           </div>
         </>
       )}
