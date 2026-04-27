@@ -413,6 +413,7 @@ export default function InboxPage() {
     setShowAssignDropdown(false);
     setShowTemplates(false);
     setSelectedTemplate(null);
+    setToasts(prev => prev.filter(t => t.convId !== conv.id));
     fetchTimeline(conv.id);
     const supabase = createClient();
     supabase.from("conversations").update({ unread_count: 0 }).eq("id", conv.id);
