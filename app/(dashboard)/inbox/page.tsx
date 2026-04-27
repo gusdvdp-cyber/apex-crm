@@ -380,6 +380,7 @@ export default function InboxPage() {
       body: JSON.stringify({ conversation_id: selected.id, content: "", media_url: urlData.publicUrl, media_type: "audio" }),
     });
     if (res.ok) { fetchTimeline(selected.id); if (orgId) fetchConversations(orgId); }
+    else { const j = await res.json().catch(() => ({})); alert("Error al enviar: " + (j.detail || j.error || "desconocido")); }
     setUploading(false);
   };
 
@@ -435,7 +436,7 @@ export default function InboxPage() {
     if (res.ok) {
       fetchTimeline(selected.id);
       if (orgId) fetchConversations(orgId);
-    }
+    } else { const j = await res.json().catch(() => ({})); alert("Error al enviar: " + (j.detail || j.error || "desconocido")); }
     setUploading(false);
   };
 
