@@ -84,11 +84,23 @@ export async function POST(req: NextRequest) {
 
       if (media_url && (media_type === "image" || media_type === "audio")) {
         // Upload to Meta Media API to get a media_id
-        const mimeType = media_mime || (media_type === "image" ? "image/jpeg" : "audio/ogg");
-        const ext = mimeType.split("/")[1]?.split(";")[0] ?? "bin";
+        // Strip codec suffix (e.g. "audio/ogg;codecs=opus" → "audio/ogg")
+        const mimeType = (media_mime || (media_type === "image" ? "image/jpeg" : "audio/ogg")).split(";")[0];
+        const extMap: Record<string, string> = {
+          "audio/mpeg": "mp3", "audio/ogg": "ogg", "audio/mp4": "m4a",
+          "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp",
+        };
+        const ext = extMap[mimeType] ?? mimeType.split("/")[1] ?? "bin";
+
+        console.log(`[send] media upload: type=${mimeType} ext=${ext} url=${media_url}`);
 
         const fileRes = await fetch(media_url);
+        if (!fileRes.ok) {
+          console.error("[send] Failed to fetch media from storage:", fileRes.status);
+          return NextResponse.json({ error: "Error al descargar media de storage" }, { status: 500 });
+        }
         const fileBuffer = await fileRes.arrayBuffer();
+        console.log(`[send] downloaded ${fileBuffer.byteLength} bytes`);
 
         const form = new FormData();
         form.append("messaging_product", "whatsapp");
@@ -108,6 +120,7 @@ export async function POST(req: NextRequest) {
         }
 
         const { id: mediaId } = await uploadRes.json() as { id: string };
+        console.log(`[send] Meta media uploaded, mediaId=${mediaId}`);
 
         if (media_type === "image") {
           waBody = {
