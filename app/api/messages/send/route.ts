@@ -21,7 +21,7 @@ function stripPrefix(s: string, prefix: string): string {
   return s.startsWith(prefix) ? s.slice(prefix.length) : s;
 }
 
-async function findOrCreateConversation(orgId: string, phone: string | number): Promise<string | null> {
+async function findOrCreateConversation(orgId: string, phone: string | number, contactName?: string): Promise<string | null> {
   const cleanPhone = digitsOnly(phone);
   const externalId = "wa_" + cleanPhone;
 
@@ -36,9 +36,11 @@ async function findOrCreateConversation(orgId: string, phone: string | number): 
   if (contact) {
     contactId = contact.id;
   } else {
+    const nameParts = (contactName ?? cleanPhone).split(" ");
     const { data: newContact } = await admin.from("contacts").insert({
       organization_id: orgId,
-      name: cleanPhone,
+      name: nameParts[0] ?? cleanPhone,
+      last_name: nameParts.slice(1).join(" ") || null,
       phone: cleanPhone,
     }).select("id").single();
     contactId = newContact?.id ?? null;
@@ -60,7 +62,7 @@ async function findOrCreateConversation(orgId: string, phone: string | number): 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    let { conversation_id, content, media_url, media_type, media_mime, template_name, template_language, template_components, org_slug } = body;
+    let { conversation_id, content, media_url, media_type, media_mime, template_name, template_language, template_components, org_slug, contact_name } = body;
   let phone: string = digitsOnly(body.phone ?? "");
 
     if (!content && !media_url && !template_name)
@@ -100,7 +102,7 @@ export async function POST(req: NextRequest) {
     if (!conversation_id) {
       if (!phone)
         return NextResponse.json({ error: "Falta conversation_id o phone" }, { status: 400 });
-      conversation_id = await findOrCreateConversation(orgId!, phone);
+      conversation_id = await findOrCreateConversation(orgId!, phone, contact_name);
       if (!conversation_id)
         return NextResponse.json({ error: "No se pudo crear la conversación" }, { status: 500 });
     }
