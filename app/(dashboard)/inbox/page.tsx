@@ -366,19 +366,52 @@ export default function InboxPage() {
     setSending(false);
   };
 
+  const convertToMp3 = async (blob: Blob): Promise<Blob> => {
+    const lamejs = await import("lamejs");
+    const Mp3Encoder = lamejs.default?.Mp3Encoder ?? (lamejs as unknown as { Mp3Encoder: new (ch: number, sr: number, br: number) => unknown }).Mp3Encoder;
+    const arrayBuffer = await blob.arrayBuffer();
+    const audioCtx = new AudioContext();
+    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+    await audioCtx.close();
+    const samples = audioBuffer.getChannelData(0);
+    const pcm = new Int16Array(samples.length);
+    for (let i = 0; i < samples.length; i++) pcm[i] = Math.max(-32768, Math.min(32767, samples[i] * 32768));
+    const encoder = new (Mp3Encoder as new (ch: number, sr: number, br: number) => { encodeBuffer: (b: Int16Array) => Int8Array; flush: () => Int8Array })(1, audioBuffer.sampleRate, 128);
+    const parts: Int8Array[] = [];
+    const block = 1152;
+    for (let i = 0; i < pcm.length; i += block) {
+      const buf = encoder.encodeBuffer(pcm.subarray(i, i + block));
+      if (buf.length > 0) parts.push(buf);
+    }
+    const end = encoder.flush();
+    if (end.length > 0) parts.push(end);
+    return new Blob(parts, { type: "audio/mpeg" });
+  };
+
   const uploadAndSendAudio = async (blob: Blob, mimeType: string) => {
     if (!selected || !orgId) return;
     setUploading(true);
     const supabase = createClient();
-    const ext = mimeType.includes("ogg") ? "ogg" : mimeType.includes("mp4") ? "mp4" : "webm";
+
+    // Convert non-OGG formats (webm from Chrome) to MP3 for WhatsApp compatibility
+    let finalBlob = blob;
+    let finalMime = mimeType;
+    if (!mimeType.includes("ogg") && !mimeType.includes("mp4") && !mimeType.includes("mpeg")) {
+      try {
+        finalBlob = await convertToMp3(blob);
+        finalMime = "audio/mpeg";
+      } catch (e) { console.error("MP3 conversion failed:", e); }
+    }
+
+    const ext = finalMime.includes("ogg") ? "ogg" : finalMime.includes("mpeg") ? "mp3" : "mp4";
     const path = `outbound/${orgId}/${Date.now()}.${ext}`;
-    const { error } = await supabase.storage.from("media").upload(path, blob, { contentType: mimeType, upsert: true });
+    const { error } = await supabase.storage.from("media").upload(path, finalBlob, { contentType: finalMime, upsert: true });
     if (error) { console.error("Audio upload error:", error.message); alert("Error al subir audio: " + error.message); setUploading(false); return; }
     const { data: urlData } = supabase.storage.from("media").getPublicUrl(path);
     const res = await fetch("/api/messages/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversation_id: selected.id, content: "", media_url: urlData.publicUrl, media_type: "audio", media_mime: mimeType }),
+      body: JSON.stringify({ conversation_id: selected.id, content: "", media_url: urlData.publicUrl, media_type: "audio", media_mime: finalMime }),
     });
     if (res.ok) { fetchTimeline(selected.id); if (orgId) fetchConversations(orgId); }
     else { const j = await res.json().catch(() => ({})); alert("Error al enviar audio: " + (j.detail || j.error || "desconocido")); }
