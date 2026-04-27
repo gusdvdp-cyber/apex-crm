@@ -99,8 +99,8 @@ export default function Sidebar({
     verticalAlign: "middle",
   };
 
-  return (
-    <aside style={{
+  return (<>
+    <aside className="sidebar-aside" style={{
       display: "flex", flexDirection: "column",
       height: "100vh",
       width: collapsed ? "64px" : "220px",
@@ -313,5 +313,70 @@ export default function Sidebar({
         </div>
       </div>
     </aside>
-  );
+
+    {/* ── Mobile bottom nav ────────────────────────────── */}
+    <nav className="mobile-bottom-nav" style={{
+      position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 100,
+      height: "60px", background: "#080808", borderTop: "1px solid #161616",
+      alignItems: "center", justifyContent: "space-around",
+      padding: "0 4px",
+    }}>
+      {activeModules.slice(0, 4).map(mod => {
+        const Icon = ICON_MAP[mod.icon] ?? Inbox;
+        const isActive = pathname.startsWith(mod.route);
+        return (
+          <Link key={mod.key} href={mod.route} style={{
+            display: "flex", flexDirection: "column", alignItems: "center", gap: "3px",
+            padding: "6px 10px", borderRadius: "8px", textDecoration: "none",
+            color: isActive ? "var(--accent)" : "#555",
+          }}>
+            <Icon size={20} strokeWidth={isActive ? 2.5 : 1.8} color={isActive ? "var(--accent)" : "#555"} />
+            <span style={{ fontSize: "9px", fontWeight: 600, color: isActive ? "var(--accent)" : "#555" }}>{mod.label}</span>
+          </Link>
+        );
+      })}
+
+      {/* User button */}
+      <div style={{ position: "relative" }}>
+        <button onClick={() => setShowDropdown(v => !v)} style={{
+          display: "flex", flexDirection: "column", alignItems: "center", gap: "3px",
+          padding: "6px 10px", background: "transparent", border: "none", cursor: "pointer",
+        }}>
+          <div style={{ width: "24px", height: "24px", borderRadius: "6px", background: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "9px", fontWeight: 800, color: "#0a0a0a" }}>
+            {initials}
+          </div>
+          <span style={{ fontSize: "9px", fontWeight: 600, color: "#555" }}>Yo</span>
+        </button>
+
+        {showDropdown && (
+          <>
+            <div style={{ position: "fixed", inset: 0, zIndex: 198 }} onClick={() => setShowDropdown(false)} />
+            <div style={{ position: "fixed", bottom: "68px", right: "8px", zIndex: 199, width: "200px", background: "#161616", border: "1px solid #1e1e1e", borderRadius: "12px", overflow: "hidden" }}>
+              <div style={{ padding: "12px 14px", borderBottom: "1px solid #1e1e1e" }}>
+                <p style={{ fontSize: "12px", fontWeight: 700, color: "#f0f0f0", margin: "0 0 2px" }}>{userFullName}</p>
+                <p style={{ fontSize: "10px", color: "#444", margin: 0 }}>{ROLE_LABELS[userRole] ?? userRole}</p>
+              </div>
+              <div style={{ padding: "6px" }}>
+                {isSuperAdmin && (
+                  <Link href="/admin" onClick={() => setShowDropdown(false)}
+                    style={{ display: "flex", alignItems: "center", gap: "9px", padding: "8px 10px", borderRadius: "7px", textDecoration: "none", color: "#888", fontSize: "12px", fontWeight: 500 }}>
+                    <ShieldCheck size={13} /> Super Admin
+                  </Link>
+                )}
+                <Link href="/perfil" onClick={() => setShowDropdown(false)}
+                  style={{ display: "flex", alignItems: "center", gap: "9px", padding: "8px 10px", borderRadius: "7px", textDecoration: "none", color: "#888", fontSize: "12px", fontWeight: 500 }}>
+                  <User size={13} /> Mi perfil
+                </Link>
+                <form action="/logout" method="POST">
+                  <button type="submit" style={{ width: "100%", display: "flex", alignItems: "center", gap: "9px", padding: "8px 10px", borderRadius: "7px", background: "transparent", border: "none", color: "#ff4444", fontSize: "12px", fontWeight: 500, cursor: "pointer", textAlign: "left" }}>
+                    <LogOut size={13} /> Cerrar sesión
+                  </button>
+                </form>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </nav>
+  </>);
 }

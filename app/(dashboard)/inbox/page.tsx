@@ -133,6 +133,7 @@ function ResizeDivider({ onMouseDown }: { onMouseDown: (e: React.MouseEvent) => 
   const [hover, setHover] = useState(false);
   return (
     <div
+      className="inbox-resize-divider"
       onMouseDown={onMouseDown}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
@@ -433,10 +434,10 @@ export default function InboxPage() {
   );
 
   return (
-    <div style={{ display: "flex", height: "100%", overflow: "hidden", background: "#0a0a0a", userSelect: isDragging ? "none" : "auto" }}>
+    <div className="inbox-root" data-selected={!!selectedId} style={{ display: "flex", height: "100%", overflow: "hidden", background: "#0a0a0a", userSelect: isDragging ? "none" : "auto" }}>
 
       {/* Columna 1 — lista de chats */}
-      <div style={{ width: col1Width, flexShrink: 0, display: "flex", flexDirection: "column", height: "100%", background: "#0d0d0d" }}>
+      <div className="inbox-col-list" style={{ width: col1Width, flexShrink: 0, display: "flex", flexDirection: "column", height: "100%", background: "#0d0d0d" }}>
         <div style={{ padding: "20px 16px 12px" }}>
           <h1 style={{ fontSize: "15px", fontWeight: 700, color: "#f0f0f0", margin: "0 0 14px" }}>Inbox</h1>
 
@@ -529,7 +530,7 @@ export default function InboxPage() {
 
       {/* Columna 2 — info del contacto (visible al seleccionar chat) */}
       {selected && showContactPanel && (
-        <div style={{ width: col2Width, flexShrink: 0, display: "flex", flexDirection: "column", height: "100%", background: "#0d0d0d" }}>
+        <div className="inbox-col-contact" style={{ width: col2Width, flexShrink: 0, display: "flex", flexDirection: "column", height: "100%", background: "#0d0d0d" }}>
 
           {/* Header */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
@@ -602,11 +603,18 @@ export default function InboxPage() {
       {selected && showContactPanel && <ResizeDivider onMouseDown={e => startDrag(e, 2)} />}
 
       {/* Columna 3 — conversación */}
+      <div className="inbox-col-chat" style={{ flex: 1, display: "flex", flexDirection: "column", height: "100%", minWidth: 0 }}>
       {selected ? (
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100%", minWidth: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
 
           {/* Header chat */}
           <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "14px 20px", background: "#0d0d0d", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
+            {/* Back button — mobile only */}
+            <button className="mobile-back-btn" onClick={() => setSelectedId(null)}
+              style={{ width: "32px", height: "32px", borderRadius: "8px", background: "transparent", border: "1px solid #1e1e1e", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, padding: 0 }}
+            >
+              <ChevronDown size={14} color="#555" style={{ transform: "rotate(90deg)" }} />
+            </button>
             {!showContactPanel && (
               <button onClick={() => setShowContactPanel(true)}
                 style={{ width: "32px", height: "32px", borderRadius: "8px", background: "transparent", border: "1px solid #1e1e1e", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}
@@ -689,6 +697,7 @@ export default function InboxPage() {
           <p style={{ fontSize: "13px", color: "#333" }}>Seleccioná una conversación</p>
         </div>
       )}
+      </div>{/* /inbox-col-chat */}
     </div>
   );
 }

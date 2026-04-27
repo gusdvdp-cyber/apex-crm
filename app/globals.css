@@ -59,3 +59,26 @@ body {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* ── Mobile layout ─────────────────────────────────── */
+.mobile-back-btn { display: none; }
+.mobile-bottom-nav { display: none; }
+
+@media (max-width: 767px) {
+  .sidebar-aside { display: none !important; }
+  .mobile-bottom-nav { display: flex !important; }
+  .dashboard-main { height: calc(100% - 60px) !important; }
+  .mobile-back-btn { display: flex !important; }
+
+  /* Inbox: one column at a time */
+  .inbox-col-contact { display: none !important; }
+  .inbox-resize-divider { display: none !important; }
+  .inbox-root[data-selected="true"]  .inbox-col-list { display: none !important; }
+  .inbox-root[data-selected="false"] .inbox-col-chat { display: none !important; }
+  .inbox-col-list { width: 100% !important; }
+  .inbox-col-chat { flex: 1 !important; width: 100% !important; }
+}

@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Zap } from "lucide-react";
+import { Zap, Eye, EyeOff } from "lucide-react";
+import Link from "next/link";
 
 interface Props {
   orgName: string;
@@ -13,13 +14,15 @@ interface Props {
 export default function LoginForm({ orgName, orgColor, orgLogo }: Props) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const supabase = createClient();
 
-  const accent = orgColor ?? "var(--accent)";
+  const accent = orgColor ?? "#c8f135";
 
   const handleLogin = async () => {
+    if (!email || !password) { setError("Completá todos los campos"); return; }
     setLoading(true);
     setError("");
     const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -31,93 +34,94 @@ export default function LoginForm({ orgName, orgColor, orgLogo }: Props) {
     }
   };
 
+  const inputStyle: React.CSSProperties = {
+    width: "100%", padding: "12px 14px", background: "#0d0d0d",
+    border: "1px solid #1e1e1e", borderRadius: "10px", color: "#f0f0f0",
+    fontSize: "14px", outline: "none", transition: "border-color 0.15s", boxSizing: "border-box",
+  };
+
   return (
-    <div
-      className="min-h-screen flex items-center justify-center"
-      style={{ background: "var(--bg-main)" }}
-    >
-      <div
-        className="w-full max-w-sm rounded-2xl p-8"
-        style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
-      >
-        <div className="flex items-center gap-2.5 mb-8">
+    <div style={{
+      minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+      background: `radial-gradient(ellipse at 50% 0%, ${accent}14 0%, transparent 60%), #0a0a0a`,
+      padding: "24px 16px",
+    }}>
+      <div style={{
+        width: "100%", maxWidth: "400px", background: "#111",
+        border: "1px solid #1e1e1e", borderRadius: "20px", padding: "36px 32px",
+        boxShadow: "0 0 0 1px rgba(255,255,255,0.03), 0 20px 60px rgba(0,0,0,0.5)",
+      }}>
+
+        {/* Logo */}
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "32px" }}>
           {orgLogo ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={orgLogo} alt={orgName} className="w-8 h-8 rounded-xl object-cover" />
+            <img src={orgLogo} alt={orgName} style={{ width: "36px", height: "36px", borderRadius: "10px", objectFit: "cover" }} />
           ) : (
-            <div
-              className="w-8 h-8 rounded-xl flex items-center justify-center"
-              style={{ background: accent }}
-            >
-              <Zap size={16} color="white" strokeWidth={2.5} />
+            <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Zap size={17} color="#0a0a0a" strokeWidth={2.5} />
             </div>
           )}
-          <span className="font-semibold text-sm" style={{ color: "var(--text-primary)" }}>
-            {orgName}
-          </span>
+          <span style={{ fontSize: "15px", fontWeight: 700, color: "#f0f0f0", letterSpacing: "-0.3px" }}>{orgName}</span>
         </div>
 
-        <h1 className="text-xl font-semibold mb-1" style={{ color: "var(--text-primary)" }}>
-          Bienvenido
-        </h1>
-        <p className="text-xs mb-6" style={{ color: "var(--text-secondary)" }}>
-          Ingresá a tu cuenta para continuar
-        </p>
+        <h1 style={{ fontSize: "22px", fontWeight: 700, color: "#f0f0f0", margin: "0 0 6px", letterSpacing: "-0.4px" }}>Bienvenido</h1>
+        <p style={{ fontSize: "13px", color: "#555", margin: "0 0 28px" }}>Ingresá a tu cuenta para continuar</p>
 
-        <div className="flex flex-col gap-3">
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+
+          {/* Email */}
           <div>
-            <label className="text-xs font-medium block mb-1.5" style={{ color: "var(--text-secondary)" }}>
-              Email
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="tu@email.com"
-              className="w-full px-3 py-2.5 text-sm rounded-xl outline-none"
-              style={{
-                background: "var(--bg-main)",
-                border: "1px solid var(--border)",
-                color: "var(--text-primary)",
-              }}
+            <label style={{ fontSize: "11px", fontWeight: 600, color: "#666", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: "8px" }}>Email</label>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+              placeholder="tu@email.com" onKeyDown={e => e.key === "Enter" && handleLogin()}
+              style={inputStyle}
+              onFocus={e => e.currentTarget.style.borderColor = accent}
+              onBlur={e => e.currentTarget.style.borderColor = "#1e1e1e"}
             />
           </div>
 
+          {/* Password */}
           <div>
-            <label className="text-xs font-medium block mb-1.5" style={{ color: "var(--text-secondary)" }}>
-              Contraseña
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-              className="w-full px-3 py-2.5 text-sm rounded-xl outline-none"
-              style={{
-                background: "var(--bg-main)",
-                border: "1px solid var(--border)",
-                color: "var(--text-primary)",
-              }}
-            />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+              <label style={{ fontSize: "11px", fontWeight: 600, color: "#666", textTransform: "uppercase", letterSpacing: "0.07em" }}>Contraseña</label>
+              <Link href="/forgot-password"
+                style={{ fontSize: "11px", color: "#555", textDecoration: "none", transition: "color 0.1s" }}
+                onMouseEnter={e => (e.currentTarget as HTMLAnchorElement).style.color = accent}
+                onMouseLeave={e => (e.currentTarget as HTMLAnchorElement).style.color = "#555"}
+              >
+                ¿Olvidaste tu contraseña?
+              </Link>
+            </div>
+            <div style={{ position: "relative" }}>
+              <input type={showPw ? "text" : "password"} value={password} onChange={e => setPassword(e.target.value)}
+                placeholder="••••••••" onKeyDown={e => e.key === "Enter" && handleLogin()}
+                style={{ ...inputStyle, paddingRight: "44px" }}
+                onFocus={e => e.currentTarget.style.borderColor = accent}
+                onBlur={e => e.currentTarget.style.borderColor = "#1e1e1e"}
+              />
+              <button type="button" onClick={() => setShowPw(v => !v)}
+                style={{ position: "absolute", right: "13px", top: "50%", transform: "translateY(-50%)", background: "transparent", border: "none", color: "#444", cursor: "pointer", display: "flex", alignItems: "center", padding: 0 }}>
+                {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
           </div>
 
+          {/* Error */}
           {error && (
-            <p className="text-xs" style={{ color: "var(--danger)" }}>
-              {error}
-            </p>
+            <div style={{ background: "#ff444415", border: "1px solid #ff444430", borderRadius: "8px", padding: "10px 12px" }}>
+              <p style={{ fontSize: "12px", color: "#ff7070", margin: 0 }}>{error}</p>
+            </div>
           )}
 
-          <button
-            onClick={handleLogin}
-            disabled={loading}
-            className="w-full py-2.5 rounded-xl text-sm font-semibold mt-1 transition-opacity"
-            style={{
-              background: accent,
-              color: "white",
-              opacity: loading ? 0.7 : 1,
-            }}
-          >
+          {/* Submit */}
+          <button onClick={handleLogin} disabled={loading} style={{
+            width: "100%", padding: "13px", borderRadius: "10px",
+            background: loading ? "#1e1e1e" : accent,
+            border: "none", color: loading ? "#555" : "#0a0a0a",
+            fontSize: "14px", fontWeight: 700, cursor: loading ? "not-allowed" : "pointer",
+            transition: "all 0.15s", marginTop: "2px",
+          }}>
             {loading ? "Ingresando..." : "Ingresar"}
           </button>
         </div>

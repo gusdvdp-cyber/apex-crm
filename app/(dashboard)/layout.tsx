@@ -70,7 +70,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
             userFullName={profile.full_name ?? user.email ?? "Usuario"}
             userRole={profile.role}
           />
-          <main style={{ flex: 1, minWidth: 0, height: "100%", overflow: "hidden" }}>
+          <main className="dashboard-main" style={{ flex: 1, minWidth: 0, height: "100%", overflow: "hidden" }}>
             {children}
           </main>
         </div>
