@@ -190,6 +190,7 @@ export default function InboxPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const selectedIdRef = useRef<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
   // Deriva selected siempre fresco desde el array de conversations
@@ -197,6 +198,7 @@ export default function InboxPage() {
 
   useEffect(() => { init(); }, []);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [timeline]);
+  useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
   useEffect(() => {
     localStorage.setItem("inbox_prefs", JSON.stringify({ col1Width, col2Width, showContactPanel, activeTab, convFilter }));
   }, [col1Width, col2Width, showContactPanel, activeTab, convFilter]);
@@ -248,8 +250,15 @@ export default function InboxPage() {
       await fetchAgents(profile.organization_id);
       setupRealtime(profile.organization_id);
       if (convs.length > 0) {
-        setSelectedId(convs[0].id);
-        fetchTimeline(convs[0].id);
+        const first = convs[0];
+        selectedIdRef.current = first.id;
+        setSelectedId(first.id);
+        fetchTimeline(first.id);
+        if (first.unread_count > 0) {
+          const supabase = createClient();
+          supabase.from("conversations").update({ unread_count: 0 }).eq("id", first.id);
+          setConversations(prev => prev.map(c => c.id === first.id ? { ...c, unread_count: 0 } : c));
+        }
       }
     } finally {
       setLoading(false);
@@ -270,6 +279,15 @@ export default function InboxPage() {
       .eq("organization_id", oid)
       .order("updated_at", { ascending: false });
     const convs = (data as Conversation[]) ?? [];
+    // Always clear unread for the currently open conversation
+    const openId = selectedIdRef.current;
+    if (openId) {
+      const open = convs.find(c => c.id === openId);
+      if (open?.unread_count && open.unread_count > 0) {
+        supabase.from("conversations").update({ unread_count: 0 }).eq("id", openId);
+        convs.forEach((c, i) => { if (c.id === openId) convs[i] = { ...c, unread_count: 0 }; });
+      }
+    }
     setConversations(convs);
     return convs;
   };
