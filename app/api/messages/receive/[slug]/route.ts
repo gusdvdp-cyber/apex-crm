@@ -207,7 +207,7 @@ async function upsertWaMessage({ orgId, phone, contactName, waMsgId, msg }: {
   if (conv) {
     convId = conv.id;
   } else {
-    const { data: newConv } = await admin.from("conversations").insert({
+    const { data: newConv, error: convErr } = await admin.from("conversations").insert({
       organization_id: orgId,
       channel: "whatsapp",
       external_id: externalId,
@@ -216,7 +216,11 @@ async function upsertWaMessage({ orgId, phone, contactName, waMsgId, msg }: {
       unread_count: 0,
       is_online: false,
     }).select("id").single();
-    convId = newConv!.id;
+    if (convErr || !newConv) {
+      console.error("Error creating conversation:", convErr?.message);
+      return;
+    }
+    convId = newConv.id;
   }
 
   // Determine text and media
@@ -294,7 +298,7 @@ async function upsertSocialMessage({ orgId, channel, senderId, mid, text }: {
   if (conv) {
     convId = conv.id;
   } else {
-    const { data: newConv } = await admin.from("conversations").insert({
+    const { data: newConv, error: convErr } = await admin.from("conversations").insert({
       organization_id: orgId,
       channel,
       external_id: externalId,
@@ -303,7 +307,11 @@ async function upsertSocialMessage({ orgId, channel, senderId, mid, text }: {
       unread_count: 0,
       is_online: false,
     }).select("id").single();
-    convId = newConv!.id;
+    if (convErr || !newConv) {
+      console.error("Error creating conversation:", convErr?.message);
+      return;
+    }
+    convId = newConv.id;
   }
 
   await admin.from("messages").insert({
