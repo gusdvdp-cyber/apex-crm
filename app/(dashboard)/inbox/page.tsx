@@ -184,6 +184,8 @@ export default function InboxPage() {
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
 
   // Deriva selected siempre fresco desde el array de conversations
   const selected = conversations.find(c => c.id === selectedId) ?? null;
@@ -357,6 +359,33 @@ export default function InboxPage() {
       if (orgId) fetchConversations(orgId);
     }
     setSending(false);
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selected || !orgId) return;
+    e.target.value = "";
+
+    setUploading(true);
+    const supabase = createClient();
+    const ext = file.name.split(".").pop() ?? "bin";
+    const path = `outbound/${orgId}/${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from("media").upload(path, file, { upsert: true });
+    if (error) { console.error("Upload error:", error.message); setUploading(false); return; }
+
+    const { data: urlData } = supabase.storage.from("media").getPublicUrl(path);
+    const mediaType = file.type.startsWith("image") ? "image" : "audio";
+
+    const res = await fetch("/api/messages/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversation_id: selected.id, content: "", media_url: urlData.publicUrl, media_type: mediaType }),
+    });
+    if (res.ok) {
+      fetchTimeline(selected.id);
+      if (orgId) fetchConversations(orgId);
+    }
+    setUploading(false);
   };
 
   const filtered = conversations.filter(c => {
@@ -612,15 +641,16 @@ export default function InboxPage() {
 
           {/* Input */}
           <div style={{ padding: "14px 20px", background: "#0d0d0d", borderTop: "1px solid #1a1a1a", flexShrink: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", background: "#111", border: `1px solid ${sending ? "var(--accent)" : "#1e1e1e"}`, borderRadius: "14px", transition: "border-color 0.2s" }}>
-              <Paperclip size={14} color="#333" style={{ cursor: "pointer", flexShrink: 0 }} />
-              <input type="text" placeholder={sending ? "Enviando..." : "Escribí un mensaje..."} value={newMessage}
+            <input ref={fileInputRef} type="file" accept="image/*,audio/*" onChange={handleFileSelect} style={{ display: "none" }} />
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", background: "#111", border: `1px solid ${sending || uploading ? "var(--accent)" : "#1e1e1e"}`, borderRadius: "14px", transition: "border-color 0.2s" }}>
+              <Paperclip size={14} color={uploading ? "var(--accent)" : "#555"} style={{ cursor: "pointer", flexShrink: 0 }} onClick={() => fileInputRef.current?.click()} />
+              <input type="text" placeholder={uploading ? "Subiendo archivo..." : sending ? "Enviando..." : "Escribí un mensaje..."} value={newMessage}
                 onChange={e => setNewMessage(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
                 disabled={sending}
                 style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: sending ? "#666" : "#f0f0f0", fontSize: "13px" }} />
               <Smile size={14} color="#333" style={{ cursor: "pointer", flexShrink: 0 }} />
-              <button onClick={sendMessage} disabled={sending || !newMessage.trim()}
+              <button onClick={sendMessage} disabled={sending || uploading || !newMessage.trim()}
                 style={{ width: "30px", height: "30px", borderRadius: "8px", border: "none", background: newMessage.trim() && !sending ? "var(--accent)" : "#1e1e1e", display: "flex", alignItems: "center", justifyContent: "center", cursor: sending ? "not-allowed" : "pointer", transition: "all 0.15s", flexShrink: 0 }}>
                 {sending
                   ? <div style={{ width: "13px", height: "13px", border: "2px solid #333", borderTopColor: "var(--accent)", borderRadius: "50%", animation: "spin 0.6s linear infinite" }} />

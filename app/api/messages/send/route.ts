@@ -3,8 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(req: NextRequest) {
   try {
-    const { conversation_id, content } = await req.json();
-    if (!conversation_id || !content)
+    const { conversation_id, content, media_url, media_type } = await req.json();
+    if (!conversation_id || (!content && !media_url))
       return NextResponse.json({ error: "Faltan parámetros" }, { status: 400 });
 
     const supabase = await createClient();
@@ -40,17 +40,21 @@ export async function POST(req: NextRequest) {
       ]);
     }
 
+    const displayText = content || (media_type === "image" ? "[imagen]" : media_type === "audio" ? "[audio]" : "[archivo]");
+
     const saveMessage = async (externalId: string | null) => {
       await Promise.all([
         supabase.from("messages").insert({
           conversation_id,
           external_id: externalId,
-          text: content,
+          text: displayText,
           from_type: "me",
           sent_by: user?.id ?? null,
+          media_url: media_url ?? null,
+          media_type: media_type ?? null,
         }),
         supabase.from("conversations").update({
-          last_message: content,
+          last_message: displayText,
           updated_at: new Date().toISOString(),
         }).eq("id", conversation_id),
       ]);
@@ -76,18 +80,35 @@ export async function POST(req: NextRequest) {
       if (!phoneNumberId || !accessToken)
         return NextResponse.json({ error: "WhatsApp no configurado. Ir a Ajustes → Canales." }, { status: 400 });
 
-      const res = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
+      let waBody: Record<string, unknown>;
+
+      if (media_url && media_type === "image") {
+        waBody = {
+          messaging_product: "whatsapp",
+          to: phone,
+          type: "image",
+          image: { link: media_url, ...(content ? { caption: content } : {}) },
+        };
+      } else if (media_url && media_type === "audio") {
+        waBody = {
+          messaging_product: "whatsapp",
+          to: phone,
+          type: "audio",
+          audio: { link: media_url },
+        };
+      } else {
+        waBody = {
           messaging_product: "whatsapp",
           to: phone,
           type: "text",
           text: { body: content },
-        }),
+        };
+      }
+
+      const res = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${accessToken}` },
+        body: JSON.stringify(waBody),
       });
 
       if (!res.ok) {
@@ -103,7 +124,6 @@ export async function POST(req: NextRequest) {
 
     // ── Instagram / Messenger via Meta Graph API ───────────────
     if (channel === "instagram" || channel === "messenger") {
-      // external_id format: ig_{igsid} or fb_{psid}
       const recipientId = conversation.external_id?.replace(/^(ig_|fb_)/, "");
       if (!recipientId)
         return NextResponse.json({ error: "No hay ID de destinatario" }, { status: 400 });
@@ -120,10 +140,7 @@ export async function POST(req: NextRequest) {
 
       const res = await fetch("https://graph.facebook.com/v20.0/me/messages", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${pageAccessToken}`,
-        },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${pageAccessToken}` },
         body: JSON.stringify({
           recipient: { id: recipientId },
           message: { text: content },
