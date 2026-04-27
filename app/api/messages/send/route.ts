@@ -8,8 +8,8 @@ const admin = createAdminClient(
   { auth: { autoRefreshToken: false, persistSession: false } }
 );
 
-async function findOrCreateConversation(orgId: string, phone: string): Promise<string | null> {
-  const cleanPhone = phone.replace(/\D/g, "");
+async function findOrCreateConversation(orgId: string, phone: string | number): Promise<string | null> {
+  const cleanPhone = String(phone).replace(/\D/g, "");
   const externalId = `wa_${cleanPhone}`;
 
   const { data: existing } = await admin
@@ -47,7 +47,8 @@ async function findOrCreateConversation(orgId: string, phone: string): Promise<s
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    let { conversation_id, content, media_url, media_type, media_mime, template_name, template_language, template_components, phone, org_slug } = body;
+    let { conversation_id, content, media_url, media_type, media_mime, template_name, template_language, template_components, org_slug } = body;
+  let phone: string = String(body.phone ?? "");
 
     if (!content && !media_url && !template_name)
       return NextResponse.json({ error: "Falta content, media_url o template_name" }, { status: 400 });
