@@ -27,6 +27,14 @@ interface Message {
   media_type?: string | null;
   sent_by?: string | null;
   sender?: AgentProfile | null;
+  status?: "sent" | "delivered" | "read" | null;
+}
+
+function MessageTicks({ status }: { status?: "sent" | "delivered" | "read" | null }) {
+  if (!status) return <span style={{ opacity: 0.4, fontSize: "11px", color: "#0a0a0a" }}>✓</span>;
+  if (status === "sent") return <span style={{ opacity: 0.5, fontSize: "11px", color: "#0a0a0a" }}>✓</span>;
+  if (status === "delivered") return <span style={{ opacity: 0.6, fontSize: "11px", color: "#0a0a0a" }}>✓✓</span>;
+  return <span style={{ fontSize: "11px", color: "#4fc3f7" }}>✓✓</span>;
 }
 
 interface ActivityEntry {
@@ -732,9 +740,10 @@ export default function InboxPage() {
                   )}
                   <div style={{ maxWidth: "65%", padding: msg.media_type === "image" ? "6px" : "10px 14px", background: isMe ? "var(--accent)" : "#161616", borderRadius: isMe ? "16px 16px 4px 16px" : "16px 16px 16px 4px", fontSize: "13px", lineHeight: "1.5", overflow: "hidden" }}>
                     <MessageContent msg={msg} />
-                    <p style={{ margin: "4px 0 0", fontSize: "10px", opacity: 0.5, textAlign: "right", color: isMe ? "#0a0a0a" : "#f0f0f0" }}>
-                      {fmtTime(msg.created_at)}
-                    </p>
+                    <div style={{ margin: "4px 0 0", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "3px" }}>
+                      <span style={{ fontSize: "10px", opacity: 0.5, color: isMe ? "#0a0a0a" : "#f0f0f0" }}>{fmtTime(msg.created_at)}</span>
+                      {isMe && <MessageTicks status={msg.status} />}
+                    </div>
                   </div>
                 </div>
               );

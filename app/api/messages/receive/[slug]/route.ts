@@ -71,9 +71,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
       const changes = ((entry as Record<string, unknown>).changes as unknown[]) ?? [];
       for (const change of changes) {
         const value = (change as Record<string, unknown>).value as Record<string, unknown>;
+
+        // ── Status updates (sent / delivered / read) ──────────
+        if (value?.statuses) {
+          const statuses = (value.statuses as Record<string, unknown>[]) ?? [];
+          for (const s of statuses) {
+            const waMsgId = s.id as string;
+            const status = s.status as string;
+            if (waMsgId && (status === "sent" || status === "delivered" || status === "read")) {
+              await admin.from("messages").update({ status }).eq("external_id", waMsgId);
+            }
+          }
+        }
+
         if (!value?.messages) continue;
 
-        const metadata = value.metadata as Record<string, string>;
         const contacts = (value.contacts as Record<string, unknown>[]) ?? [];
         const messages = (value.messages as Record<string, unknown>[]) ?? [];
 
