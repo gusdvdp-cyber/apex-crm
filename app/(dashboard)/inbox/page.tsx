@@ -327,11 +327,14 @@ export default function InboxPage() {
     // Always clear unread for the currently open conversation
     const openId = selectedIdRef.current;
     if (openId) {
-      const open = convs.find(c => c.id === openId);
-      if (open?.unread_count && open.unread_count > 0) {
-        supabase.from("conversations").update({ unread_count: 0 }).eq("id", openId);
-        convs.forEach((c, i) => { if (c.id === openId) convs[i] = { ...c, unread_count: 0 }; });
-      }
+      convs.forEach((c, i) => {
+        if (c.id === openId) {
+          if (c.unread_count > 0) {
+            supabase.from("conversations").update({ unread_count: 0 }).eq("id", openId).then(() => {});
+          }
+          convs[i] = { ...c, unread_count: 0 };
+        }
+      });
     }
     setConversations(convs);
     return convs;
@@ -425,7 +428,7 @@ export default function InboxPage() {
     setToasts(prev => prev.filter(t => t.convId !== conv.id));
     fetchTimeline(conv.id);
     const supabase = createClient();
-    supabase.from("conversations").update({ unread_count: 0 }).eq("id", conv.id);
+    supabase.from("conversations").update({ unread_count: 0 }).eq("id", conv.id).then(() => {});
     setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, unread_count: 0 } : c));
   };
 
@@ -646,7 +649,7 @@ export default function InboxPage() {
                     <p style={{ fontSize: "11px", color: conv.unread_count > 0 ? "#aaa" : "#444", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", margin: 0, fontWeight: conv.unread_count > 0 ? 500 : 400 }}>
                       {conv.last_message ?? ""}
                     </p>
-                    {conv.unread_count > 0 && (
+                    {conv.id !== selectedId && conv.unread_count > 0 && (
                       <span style={{ background: "#c8f135", color: "#0a0a0a", fontSize: "9px", fontWeight: 800, borderRadius: "20px", padding: "1px 6px", flexShrink: 0 }}>
                         {conv.unread_count}
                       </span>
