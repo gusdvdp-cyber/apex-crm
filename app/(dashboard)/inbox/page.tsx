@@ -228,6 +228,7 @@ export default function InboxPage() {
   const [toasts, setToasts] = useState<ToastNotif[]>([]);
   const conversationsRef = useRef<Conversation[]>([]);
   const realtimeClientRef = useRef<ReturnType<typeof createClient> | null>(null);
+  const channelsRef = useRef<ReturnType<ReturnType<typeof createClient>["channel"]>[]>([]);
 
   // Deriva selected siempre fresco desde el array de conversations
   const selected = conversations.find(c => c.id === selectedId) ?? null;
@@ -236,7 +237,7 @@ export default function InboxPage() {
 
   useEffect(() => {
     init();
-    return () => { realtimeClientRef.current?.removeAllChannels(); };
+    return () => { channelsRef.current.forEach(ch => ch.unsubscribe()); channelsRef.current = []; };
   }, []);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [timeline]);
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
@@ -352,7 +353,8 @@ export default function InboxPage() {
   const setupRealtime = (oid: string) => {
     const supabase = createClient();
     realtimeClientRef.current = supabase;
-    supabase.channel("inbox-msgs")
+    const ts = Date.now();
+    const msgsCh = supabase.channel(`inbox-msgs-${ts}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, payload => {
         const msg = payload.new as Message & { conversation_id: string; from_type: string };
         if (msg.conversation_id === selectedIdRef.current) {
@@ -401,15 +403,16 @@ export default function InboxPage() {
         ));
       })
       .subscribe();
-    supabase.channel("inbox-act")
+    const actCh = supabase.channel(`inbox-act-${ts}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "activity_log" }, payload => {
         const log = payload.new as ActivityEntry;
         setTimeline(prev => prev.find(i => i.type === "activity" && i.data.id === log.id) ? prev : [...prev, { type: "activity", ts: log.created_at, data: log }]);
       }).subscribe();
-    supabase.channel("inbox-convs")
+    const convsCh = supabase.channel(`inbox-convs-${ts}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "conversations" }, () => {
         fetchConversations(oid);
       }).subscribe();
+    channelsRef.current = [msgsCh, actCh, convsCh];
   };
 
   const selectConversation = (conv: Conversation) => {
