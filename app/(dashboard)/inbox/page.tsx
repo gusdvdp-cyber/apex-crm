@@ -335,8 +335,10 @@ export default function InboxPage() {
     const supabase = createClient();
     supabase.channel("inbox-msgs")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, payload => {
-        const msg = payload.new as Message;
-        setTimeline(prev => prev.find(i => i.type === "message" && i.data.id === msg.id) ? prev : [...prev, { type: "message", ts: msg.created_at, data: msg }]);
+        const msg = payload.new as Message & { conversation_id: string };
+        if (msg.conversation_id === selectedIdRef.current) {
+          setTimeline(prev => prev.find(i => i.type === "message" && i.data.id === msg.id) ? prev : [...prev, { type: "message", ts: msg.created_at, data: msg }]);
+        }
         fetchConversations(oid);
       })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, payload => {
@@ -354,7 +356,7 @@ export default function InboxPage() {
         setTimeline(prev => prev.find(i => i.type === "activity" && i.data.id === log.id) ? prev : [...prev, { type: "activity", ts: log.created_at, data: log }]);
       }).subscribe();
     supabase.channel("inbox-convs")
-      .on("postgres_changes", { event: "*", schema: "public", table: "conversations", filter: `organization_id=eq.${oid}` }, () => {
+      .on("postgres_changes", { event: "*", schema: "public", table: "conversations" }, () => {
         fetchConversations(oid);
       }).subscribe();
   };
