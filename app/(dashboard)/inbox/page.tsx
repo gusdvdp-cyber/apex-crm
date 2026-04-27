@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
   Search, MessageCircle, Mail, Send, Paperclip,
-  Smile, UserCheck, Activity, ChevronDown, X,
+  Smile, UserCheck, Activity, ChevronDown, X, Mic,
 } from "lucide-react";
 
 type Channel = "whatsapp" | "instagram" | "messenger" | "gmail" | "outlook";
@@ -186,6 +186,11 @@ export default function InboxPage() {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Deriva selected siempre fresco desde el array de conversations
   const selected = conversations.find(c => c.id === selectedId) ?? null;
@@ -359,6 +364,52 @@ export default function InboxPage() {
       if (orgId) fetchConversations(orgId);
     }
     setSending(false);
+  };
+
+  const uploadAndSendAudio = async (blob: Blob) => {
+    if (!selected || !orgId) return;
+    setUploading(true);
+    const supabase = createClient();
+    const path = `outbound/${orgId}/${Date.now()}.ogg`;
+    const { error } = await supabase.storage.from("media").upload(path, blob, { contentType: "audio/ogg", upsert: true });
+    if (error) { console.error("Audio upload error:", error.message); setUploading(false); return; }
+    const { data: urlData } = supabase.storage.from("media").getPublicUrl(path);
+    const res = await fetch("/api/messages/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversation_id: selected.id, content: "", media_url: urlData.publicUrl, media_type: "audio" }),
+    });
+    if (res.ok) { fetchTimeline(selected.id); if (orgId) fetchConversations(orgId); }
+    setUploading(false);
+  };
+
+  const startRecording = async () => {
+    if (recording || !selected) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/ogg";
+      const mr = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = mr;
+      audioChunksRef.current = [];
+      mr.ondataavailable = e => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      mr.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        uploadAndSendAudio(blob);
+      };
+      mr.start();
+      setRecording(true);
+      setRecordingSeconds(0);
+      recordingTimerRef.current = setInterval(() => setRecordingSeconds(s => s + 1), 1000);
+    } catch { console.error("Mic permission denied"); }
+  };
+
+  const stopRecording = () => {
+    if (!recording || !mediaRecorderRef.current) return;
+    mediaRecorderRef.current.stop();
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    setRecording(false);
+    setRecordingSeconds(0);
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -642,23 +693,47 @@ export default function InboxPage() {
           {/* Input */}
           <div style={{ padding: "14px 20px", background: "#0d0d0d", borderTop: "1px solid #1a1a1a", flexShrink: 0 }}>
             <input ref={fileInputRef} type="file" accept="image/*,audio/*" onChange={handleFileSelect} style={{ display: "none" }} />
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", background: "#111", border: `1px solid ${sending || uploading ? "var(--accent)" : "#1e1e1e"}`, borderRadius: "14px", transition: "border-color 0.2s" }}>
-              <Paperclip size={14} color={uploading ? "var(--accent)" : "#555"} style={{ cursor: "pointer", flexShrink: 0 }} onClick={() => fileInputRef.current?.click()} />
-              <input type="text" placeholder={uploading ? "Subiendo archivo..." : sending ? "Enviando..." : "Escribí un mensaje..."} value={newMessage}
-                onChange={e => setNewMessage(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-                disabled={sending}
-                style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: sending ? "#666" : "#f0f0f0", fontSize: "13px" }} />
-              <Smile size={14} color="#333" style={{ cursor: "pointer", flexShrink: 0 }} />
-              <button onClick={sendMessage} disabled={sending || uploading || !newMessage.trim()}
-                style={{ width: "30px", height: "30px", borderRadius: "8px", border: "none", background: newMessage.trim() && !sending ? "var(--accent)" : "#1e1e1e", display: "flex", alignItems: "center", justifyContent: "center", cursor: sending ? "not-allowed" : "pointer", transition: "all 0.15s", flexShrink: 0 }}>
-                {sending
-                  ? <div style={{ width: "13px", height: "13px", border: "2px solid #333", borderTopColor: "var(--accent)", borderRadius: "50%", animation: "spin 0.6s linear infinite" }} />
-                  : <Send size={13} color={newMessage.trim() ? "#0a0a0a" : "#444"} />
-                }
-              </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", background: recording ? "#1a0505" : "#111", border: `1px solid ${recording ? "#ef4444" : sending || uploading ? "var(--accent)" : "#1e1e1e"}`, borderRadius: "14px", transition: "all 0.2s" }}>
+              <Paperclip size={14} color={uploading ? "var(--accent)" : "#555"} style={{ cursor: "pointer", flexShrink: 0 }} onClick={() => !recording && fileInputRef.current?.click()} />
+              {recording ? (
+                <>
+                  <div style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#ef4444", flexShrink: 0, animation: "pulse 1s ease-in-out infinite" }} />
+                  <span style={{ flex: 1, fontSize: "13px", color: "#ef4444" }}>
+                    Grabando... {String(Math.floor(recordingSeconds / 60)).padStart(2, "0")}:{String(recordingSeconds % 60).padStart(2, "0")}
+                  </span>
+                </>
+              ) : (
+                <input type="text" placeholder={uploading ? "Subiendo archivo..." : sending ? "Enviando..." : "Escribí un mensaje..."} value={newMessage}
+                  onChange={e => setNewMessage(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                  disabled={sending || uploading}
+                  style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: sending ? "#666" : "#f0f0f0", fontSize: "13px" }} />
+              )}
+              {!recording && !newMessage.trim() ? (
+                <button
+                  onMouseDown={startRecording}
+                  onMouseUp={stopRecording}
+                  onMouseLeave={recording ? stopRecording : undefined}
+                  onTouchStart={startRecording}
+                  onTouchEnd={stopRecording}
+                  style={{ width: "30px", height: "30px", borderRadius: "8px", border: "none", background: "#1e1e1e", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}
+                >
+                  <Mic size={13} color="#666" />
+                </button>
+              ) : recording ? (
+                <button onClick={stopRecording} style={{ width: "30px", height: "30px", borderRadius: "8px", border: "none", background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}>
+                  <Send size={13} color="white" />
+                </button>
+              ) : (
+                <button onClick={sendMessage} disabled={sending || uploading}
+                  style={{ width: "30px", height: "30px", borderRadius: "8px", border: "none", background: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.15s", flexShrink: 0 }}>
+                  {sending
+                    ? <div style={{ width: "13px", height: "13px", border: "2px solid #333", borderTopColor: "var(--accent)", borderRadius: "50%", animation: "spin 0.6s linear infinite" }} />
+                    : <Send size={13} color="#0a0a0a" />
+                  }
+                </button>
+              )}
             </div>
-            {sending && <p style={{ fontSize: "10px", color: "var(--accent)", margin: "5px 0 0 4px" }}>Enviando...</p>}
           </div>
         </div>
       ) : (
