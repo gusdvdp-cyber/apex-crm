@@ -104,7 +104,7 @@ export default function AdminPage() {
               {[
                 { label: "Nombre de la organización", key: "name", placeholder: "Ej: Hotel Palermo", type: "text" },
                 { label: "Slug (identificador único)", key: "slug", placeholder: "Ej: hotel-palermo", type: "text" },
-                { label: "Email del admin", key: "admin_email", placeholder: "admin@empresa.com", type: "email" },
+                { label: "Email del admin (opcional)", key: "admin_email", placeholder: "admin@empresa.com", type: "email" },
               ].map(({ label, key, placeholder, type }) => (
                 <div key={key}>
                   <label style={{ fontSize: "10px", fontWeight: 600, color: "#444", textTransform: "uppercase", letterSpacing: "0.08em", display: "block", marginBottom: "6px" }}>
@@ -146,10 +146,10 @@ export default function AdminPage() {
             <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
               <button
                 onClick={createOrg}
-                disabled={saving || !newOrg.name || !newOrg.slug || !newOrg.admin_email}
+                disabled={saving || !newOrg.name || !newOrg.slug}
                 style={{ flex: 1, padding: "10px", borderRadius: "10px", background: "#c8f135", border: "none", cursor: "pointer", fontSize: "12px", fontWeight: 700, color: "#0a0a0a", opacity: (saving || !newOrg.admin_email) ? 0.5 : 1 }}
               >
-                {saving ? "Creando..." : "Crear y enviar invitación"}
+                {saving ? "Creando..." : newOrg.admin_email ? "Crear y enviar invitación" : "Crear organización"}
               </button>
               <button
                 onClick={() => setShowNew(false)}
