@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
   Search, MessageCircle, Mail, Send, Paperclip,
-  Smile, UserCheck, Activity, ChevronDown, X,
+  Smile, UserCheck, Activity, ChevronDown, X, LayoutTemplate,
 } from "lucide-react";
 
 type Channel = "whatsapp" | "instagram" | "messenger" | "gmail" | "outlook";
@@ -52,6 +52,16 @@ interface Conversation {
   assigned_to: string | null;
   contacts?: { id: string; name: string; phone: string | null; email: string | null; avatar_url: string | null } | null;
   agent?: AgentProfile | null;
+}
+
+interface WaTemplateComponent {
+  type: "HEADER" | "BODY" | "FOOTER" | "BUTTONS";
+  text?: string;
+}
+interface WaTemplate {
+  name: string;
+  language: string;
+  components: WaTemplateComponent[];
 }
 
 const SOCIAL_CHANNELS: Channel[] = ["whatsapp", "instagram", "messenger"];
@@ -193,6 +203,13 @@ export default function InboxPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const selectedIdRef = useRef<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [templates, setTemplates] = useState<WaTemplate[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [templateSearch, setTemplateSearch] = useState("");
+  const [selectedTemplate, setSelectedTemplate] = useState<WaTemplate | null>(null);
+  const [templateVars, setTemplateVars] = useState<string[]>([]);
+  const [templateError, setTemplateError] = useState("");
 
   // Deriva selected siempre fresco desde el array de conversations
   const selected = conversations.find(c => c.id === selectedId) ?? null;
@@ -328,6 +345,8 @@ export default function InboxPage() {
     setSelectedId(conv.id);
     setShowContactPanel(true);
     setShowAssignDropdown(false);
+    setShowTemplates(false);
+    setSelectedTemplate(null);
     fetchTimeline(conv.id);
     const supabase = createClient();
     supabase.from("conversations").update({ unread_count: 0 }).eq("id", conv.id);
@@ -370,6 +389,56 @@ export default function InboxPage() {
     setConversations(prev => prev.map(c => c.id === selected.id ? { ...c, assigned_to: agentId, agent } : c));
     setShowAssignDropdown(false);
     fetchTimeline(selected.id);
+  };
+
+  const getBodyText = (t: WaTemplate) => t.components.find(c => c.type === "BODY")?.text ?? "";
+  const countVars = (text: string) => (text.match(/\{\{\d+\}\}/g) ?? []).filter((v, i, a) => a.indexOf(v) === i).length;
+
+  const openTemplates = async () => {
+    setShowTemplates(v => !v);
+    setSelectedTemplate(null);
+    setTemplateVars([]);
+    setTemplateError("");
+    if (templates.length > 0) return;
+    setLoadingTemplates(true);
+    const res = await fetch("/api/whatsapp/templates");
+    const json = await res.json();
+    if (res.ok) setTemplates(json.templates ?? []);
+    else setTemplateError(json.error ?? "Error al cargar plantillas");
+    setLoadingTemplates(false);
+  };
+
+  const sendTemplate = async (t: WaTemplate, vars: string[]) => {
+    if (!selected || sending) return;
+    setSending(true);
+    setTemplateError("");
+    const bodyText = getBodyText(t);
+    const rendered = bodyText.replace(/\{\{(\d+)\}\}/g, (_, i) => vars[parseInt(i) - 1] ?? `{{${i}}}`);
+    const components: unknown[] = vars.length > 0
+      ? [{ type: "body", parameters: vars.map(v => ({ type: "text", text: v })) }]
+      : [];
+    const res = await fetch("/api/messages/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversation_id: selected.id,
+        content: rendered,
+        template_name: t.name,
+        template_language: t.language,
+        template_components: components,
+      }),
+    });
+    if (res.ok) {
+      setShowTemplates(false);
+      setSelectedTemplate(null);
+      setTemplateVars([]);
+      fetchTimeline(selected.id);
+      if (orgId) fetchConversations(orgId);
+    } else {
+      const j = await res.json().catch(() => ({}));
+      setTemplateError(j.error ?? "Error al enviar plantilla");
+    }
+    setSending(false);
   };
 
   const sendMessage = async () => {
@@ -675,8 +744,88 @@ export default function InboxPage() {
           {/* Input */}
           <div style={{ padding: "14px 20px", background: "#0d0d0d", borderTop: "1px solid #1a1a1a", flexShrink: 0 }}>
             <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileSelect} style={{ display: "none" }} />
+
+            {/* Template picker */}
+            {showTemplates && selected?.channel === "whatsapp" && (
+              <div style={{ background: "#161616", border: "1px solid #222", borderRadius: "14px", padding: "12px", marginBottom: "10px", display: "flex", flexDirection: "column", gap: "8px", maxHeight: "300px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontSize: "11px", fontWeight: 700, color: "#888", textTransform: "uppercase", letterSpacing: "0.08em" }}>Plantillas</span>
+                  {selectedTemplate && (
+                    <button onClick={() => { setSelectedTemplate(null); setTemplateVars([]); }} style={{ fontSize: "11px", color: "#555", background: "none", border: "none", cursor: "pointer" }}>← Volver</button>
+                  )}
+                </div>
+
+                {!selectedTemplate ? (
+                  <>
+                    <input
+                      placeholder="Buscar plantilla..."
+                      value={templateSearch}
+                      onChange={e => setTemplateSearch(e.target.value)}
+                      style={{ padding: "8px 10px", background: "#111", border: "1px solid #1e1e1e", borderRadius: "8px", color: "#f0f0f0", fontSize: "12px", outline: "none" }}
+                    />
+                    <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: "4px" }}>
+                      {loadingTemplates && <p style={{ fontSize: "12px", color: "#444", textAlign: "center", margin: "12px 0" }}>Cargando...</p>}
+                      {templateError && <p style={{ fontSize: "12px", color: "#ef4444", margin: "8px 0" }}>{templateError}</p>}
+                      {!loadingTemplates && templates.filter(t => t.name.toLowerCase().includes(templateSearch.toLowerCase())).map(t => {
+                        const body = getBodyText(t);
+                        const varCount = countVars(body);
+                        return (
+                          <button key={t.name} onClick={() => {
+                            if (varCount > 0) { setSelectedTemplate(t); setTemplateVars(Array(varCount).fill("")); }
+                            else sendTemplate(t, []);
+                          }}
+                            style={{ textAlign: "left", padding: "10px 12px", borderRadius: "8px", background: "#111", border: "1px solid #1e1e1e", cursor: "pointer", transition: "border-color 0.1s" }}
+                            onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = "#333"}
+                            onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = "#1e1e1e"}
+                          >
+                            <p style={{ margin: "0 0 3px", fontSize: "12px", fontWeight: 600, color: "#f0f0f0" }}>{t.name}</p>
+                            <p style={{ margin: 0, fontSize: "11px", color: "#555", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{body}</p>
+                            {varCount > 0 && <span style={{ fontSize: "9px", color: "#c8f135", marginTop: "4px", display: "block" }}>{varCount} variable{varCount !== 1 ? "s" : ""}</span>}
+                          </button>
+                        );
+                      })}
+                      {!loadingTemplates && !templateError && templates.filter(t => t.name.toLowerCase().includes(templateSearch.toLowerCase())).length === 0 && (
+                        <p style={{ fontSize: "12px", color: "#444", textAlign: "center", margin: "12px 0" }}>Sin plantillas</p>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                    <div style={{ padding: "10px 12px", borderRadius: "8px", background: "#111", border: "1px solid #1e1e1e" }}>
+                      <p style={{ margin: "0 0 4px", fontSize: "12px", fontWeight: 600, color: "#f0f0f0" }}>{selectedTemplate.name}</p>
+                      <p style={{ margin: 0, fontSize: "12px", color: "#666", lineHeight: "1.5" }}>{getBodyText(selectedTemplate)}</p>
+                    </div>
+                    {templateVars.map((v, i) => (
+                      <div key={i}>
+                        <label style={{ fontSize: "10px", fontWeight: 600, color: "#555", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: "5px" }}>Variable {i + 1}</label>
+                        <input
+                          value={v}
+                          onChange={e => setTemplateVars(prev => { const n = [...prev]; n[i] = e.target.value; return n; })}
+                          placeholder={`Valor para {{${i + 1}}}`}
+                          style={{ width: "100%", padding: "8px 10px", background: "#111", border: "1px solid #1e1e1e", borderRadius: "8px", color: "#f0f0f0", fontSize: "12px", outline: "none", boxSizing: "border-box" }}
+                          onFocus={e => e.currentTarget.style.borderColor = "#c8f135"}
+                          onBlur={e => e.currentTarget.style.borderColor = "#1e1e1e"}
+                        />
+                      </div>
+                    ))}
+                    {templateError && <p style={{ fontSize: "12px", color: "#ef4444", margin: 0 }}>{templateError}</p>}
+                    <button
+                      onClick={() => sendTemplate(selectedTemplate, templateVars)}
+                      disabled={sending || templateVars.some(v => !v.trim())}
+                      style={{ padding: "10px", borderRadius: "8px", background: templateVars.some(v => !v.trim()) ? "#1a1a1a" : "#c8f135", border: "none", color: templateVars.some(v => !v.trim()) ? "#444" : "#0a0a0a", fontSize: "13px", fontWeight: 700, cursor: templateVars.some(v => !v.trim()) ? "not-allowed" : "pointer" }}
+                    >
+                      {sending ? "Enviando..." : "Enviar plantilla"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", background: "#111", border: `1px solid ${sending || uploading ? "var(--accent)" : "#1e1e1e"}`, borderRadius: "14px", transition: "all 0.2s" }}>
               <Paperclip size={14} color={uploading ? "var(--accent)" : "#555"} style={{ cursor: "pointer", flexShrink: 0 }} onClick={() => fileInputRef.current?.click()} />
+              {selected?.channel === "whatsapp" && (
+                <LayoutTemplate size={14} color={showTemplates ? "var(--accent)" : "#555"} style={{ cursor: "pointer", flexShrink: 0 }} onClick={openTemplates} />
+              )}
               <input type="text" placeholder={uploading ? "Subiendo imagen..." : sending ? "Enviando..." : "Escribí un mensaje..."} value={newMessage}
                 onChange={e => setNewMessage(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}

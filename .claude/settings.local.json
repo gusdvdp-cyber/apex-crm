@@ -22,7 +22,9 @@
       "Bash(netlify env:set SUPABASE_SERVICE_ROLE_KEY \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVudXd6bXVwdHZ5dmdzb3dlZ3lsIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NTE4Mzc4MCwiZXhwIjoyMDkwNzU5NzgwfQ.zBE3M7IHV1Jda9mWcixr-APGPmfplYRa7hCTsuQT2jI\")",
       "Bash(netlify env:set *)",
       "Bash(npm install *)",
-      "Bash(xargs grep *)"
+      "Bash(xargs grep *)",
+      "Bash(taskkill /F /IM node.exe)",
+      "Bash(node *)"
     ]
   }
 }
