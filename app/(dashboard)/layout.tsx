@@ -25,7 +25,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const slug = headerList.get("x-org-slug");
   const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN;
 
-  if (slug && rootDomain) {
+  if (slug && rootDomain && profile.role !== "super_admin") {
     const admin = createAdminClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
