@@ -329,6 +329,7 @@ export default function InboxPage() {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, payload => {
         const msg = payload.new as Message;
         setTimeline(prev => prev.find(i => i.type === "message" && i.data.id === msg.id) ? prev : [...prev, { type: "message", ts: msg.created_at, data: msg }]);
+        fetchConversations(oid);
       }).subscribe();
     supabase.channel("inbox-act")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "activity_log" }, payload => {
