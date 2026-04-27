@@ -384,7 +384,7 @@ export default function InboxPage() {
     }
     const end = encoder.flush();
     if (end.length > 0) parts.push(end);
-    return new Blob(parts, { type: "audio/mpeg" });
+    return new Blob(parts.map(p => new Uint8Array(p.buffer as ArrayBuffer)), { type: "audio/mpeg" });
   };
 
   const uploadAndSendAudio = async (blob: Blob, mimeType: string) => {
