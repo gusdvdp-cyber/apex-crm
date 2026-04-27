@@ -93,6 +93,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
             contactName,
             waMsgId,
             msg,
+            accessToken: waIntegration?.config?.access_token ?? "",
           });
         }
       }
@@ -169,9 +170,49 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
 
 // ── Helpers ───────────────────────────────────────────────────
 
-async function upsertWaMessage({ orgId, phone, contactName, waMsgId, msg }: {
+async function fetchAndStoreMedia(mediaId: string, accessToken: string, orgId: string, msgId: string): Promise<{ url: string; type: string } | null> {
+  try {
+    // Get media URL from Meta
+    const metaRes = await fetch(`https://graph.facebook.com/v20.0/${mediaId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!metaRes.ok) return null;
+    const metaData = await metaRes.json() as { url: string; mime_type: string };
+
+    // Download the file
+    const fileRes = await fetch(metaData.url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!fileRes.ok) return null;
+
+    const buffer = Buffer.from(await fileRes.arrayBuffer());
+    const mimeType = metaData.mime_type ?? "application/octet-stream";
+    const ext = mimeType.includes("jpeg") ? "jpg"
+      : mimeType.includes("png") ? "png"
+      : mimeType.includes("ogg") ? "ogg"
+      : mimeType.includes("mpeg") ? "mp3"
+      : mimeType.includes("mp4") ? "mp4"
+      : "bin";
+
+    const path = `whatsapp/${orgId}/${msgId}.${ext}`;
+    const { error } = await admin.storage.from("media").upload(path, buffer, {
+      contentType: mimeType,
+      upsert: true,
+    });
+    if (error) { console.error("Storage upload error:", error.message); return null; }
+
+    const { data: urlData } = admin.storage.from("media").getPublicUrl(path);
+    const mediaType = mimeType.startsWith("image") ? "image" : "audio";
+    return { url: urlData.publicUrl, type: mediaType };
+  } catch (e) {
+    console.error("fetchAndStoreMedia error:", e);
+    return null;
+  }
+}
+
+async function upsertWaMessage({ orgId, phone, contactName, waMsgId, msg, accessToken }: {
   orgId: string; phone: string; contactName: string;
-  waMsgId: string; msg: Record<string, unknown>;
+  waMsgId: string; msg: Record<string, unknown>; accessToken: string;
 }) {
   // Deduplication
   const { data: existing } = await admin
@@ -232,11 +273,20 @@ async function upsertWaMessage({ orgId, phone, contactName, waMsgId, msg }: {
     text = ((msg.text as Record<string, string>)?.body) ?? "";
   } else if (msg.type === "image") {
     text = "[imagen]";
-    mediaType = "image";
-    // media_url will be fetched separately if needed
+    const mediaId = (msg.image as Record<string, string>)?.id;
+    if (mediaId && accessToken) {
+      const stored = await fetchAndStoreMedia(mediaId, accessToken, orgId, waMsgId);
+      if (stored) { mediaUrl = stored.url; mediaType = stored.type; }
+      else mediaType = "image";
+    } else { mediaType = "image"; }
   } else if (msg.type === "audio") {
     text = "[audio]";
-    mediaType = "audio";
+    const mediaId = (msg.audio as Record<string, string>)?.id;
+    if (mediaId && accessToken) {
+      const stored = await fetchAndStoreMedia(mediaId, accessToken, orgId, waMsgId);
+      if (stored) { mediaUrl = stored.url; mediaType = stored.type; }
+      else mediaType = "audio";
+    } else { mediaType = "audio"; }
   }
 
   await admin.from("messages").insert({
