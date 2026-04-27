@@ -1,4 +1,6 @@
+import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
 import Sidebar from "@/components/layout/Sidebar";
 import ThemeProvider from "@/components/layout/ThemeProvider";
@@ -17,6 +19,38 @@ export default async function DashboardLayout({ children }: { children: React.Re
     .single();
 
   if (!profile?.organization_id) redirect("/login");
+
+  // ── Org-subdomain validation ──────────────────────────────────
+  const headerList = await headers();
+  const slug = headerList.get("x-org-slug");
+  const rootDomain = process.env.NEXT_PUBLIC_ROOT_DOMAIN;
+
+  if (slug && rootDomain) {
+    const admin = createAdminClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    );
+
+    const { data: slugOrg } = await admin
+      .from("organizations")
+      .select("id")
+      .eq("slug", slug)
+      .single();
+
+    if (slugOrg && slugOrg.id !== profile.organization_id) {
+      // User belongs to a different org — redirect to their own subdomain
+      const { data: userOrg } = await admin
+        .from("organizations")
+        .select("slug")
+        .eq("id", profile.organization_id)
+        .single();
+
+      if (userOrg?.slug) {
+        redirect(`https://${userOrg.slug}.${rootDomain}/inbox`);
+      }
+    }
+  }
 
   const { data: orgModules } = await supabase
     .from("org_modules")
