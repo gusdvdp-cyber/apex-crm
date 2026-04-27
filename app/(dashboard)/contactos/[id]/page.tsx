@@ -28,7 +28,7 @@ interface AgentProfile {
 interface CustomFieldDef {
   id: string;
   name: string;
-  field_type: "text" | "select" | "multiselect";
+  field_type: "text" | "select" | "multiselect" | "date" | "daterange";
   options: string[] | null;
 }
 
@@ -155,6 +155,43 @@ function MultiSelectField({ def, value, onSave }: { def: CustomFieldDef; value: 
   );
 }
 
+// ── Date field ───────────────────────────────────────────────
+function DateField({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+  return (
+    <input type="date" value={value}
+      onChange={e => onSave(e.target.value)}
+      style={{ width: "100%", background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: "8px", padding: "8px 12px", color: value ? "#f0f0f0" : "#333", fontSize: "12px", outline: "none", boxSizing: "border-box", colorScheme: "dark" }}
+      onFocus={e => (e.currentTarget).style.borderColor = "var(--accent)"}
+      onBlur={e => (e.currentTarget).style.borderColor = "#1e1e1e"}
+    />
+  );
+}
+
+// ── Date range field ──────────────────────────────────────────
+function DateRangeField({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+  const parts = value ? value.split("|") : ["", ""];
+  const start = parts[0] ?? "";
+  const end = parts[1] ?? "";
+  const update = (s: string, e: string) => onSave(`${s}|${e}`);
+  return (
+    <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+      <input type="date" value={start}
+        onChange={e => update(e.target.value, end)}
+        style={{ flex: 1, background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: "8px", padding: "8px 10px", color: start ? "#f0f0f0" : "#333", fontSize: "12px", outline: "none", colorScheme: "dark" }}
+        onFocus={e => (e.currentTarget).style.borderColor = "var(--accent)"}
+        onBlur={e => (e.currentTarget).style.borderColor = "#1e1e1e"}
+      />
+      <span style={{ fontSize: "10px", color: "#444", flexShrink: 0 }}>→</span>
+      <input type="date" value={end}
+        onChange={e => update(start, e.target.value)}
+        style={{ flex: 1, background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: "8px", padding: "8px 10px", color: end ? "#f0f0f0" : "#333", fontSize: "12px", outline: "none", colorScheme: "dark" }}
+        onFocus={e => (e.currentTarget).style.borderColor = "var(--accent)"}
+        onBlur={e => (e.currentTarget).style.borderColor = "#1e1e1e"}
+      />
+    </div>
+  );
+}
+
 // ── Avatar con fallback a iniciales ──────────────────────────
 function AvatarImage({ contactId, avatarUrl, name, size }: {
   contactId: string; avatarUrl: string | null; name: string; size: number;
@@ -251,9 +288,10 @@ export default function ContactDetailPage() {
   // Modal state
   const [showModal, setShowModal] = useState(false);
   const [modalName, setModalName] = useState("");
-  const [modalType, setModalType] = useState<"text" | "select" | "multiselect">("text");
+  const [modalType, setModalType] = useState<"text" | "select" | "multiselect" | "date" | "daterange">("text");
   const [modalOptions, setModalOptions] = useState<string[]>([""]);
   const [savingField, setSavingField] = useState(false);
+  const [calendarEnabled, setCalendarEnabled] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -268,17 +306,19 @@ export default function ContactDetailPage() {
       if (!profile) return;
       setOrgId(profile.organization_id);
 
-      const [{ data: c }, { data: defs }, { data: vals }, { data: ag }] = await Promise.all([
+      const [{ data: c }, { data: defs }, { data: vals }, { data: ag }, { data: calMod }] = await Promise.all([
         supabase.from("contacts").select("id, name, last_name, phone, email, company, dni, address, budget, avatar_url, external_id, assigned_to").eq("id", id).single(),
         supabase.from("custom_field_definitions").select("*").eq("organization_id", profile.organization_id).order("created_at"),
         supabase.from("custom_field_values").select("*").eq("contact_id", id),
         supabase.from("profiles").select("id, display_name").eq("organization_id", profile.organization_id),
+        supabase.from("org_modules").select("is_active").eq("organization_id", profile.organization_id).eq("module_key", "calendario").single(),
       ]);
 
       if (c) setContact(c as Contact);
       setCustomDefs((defs as CustomFieldDef[]) ?? []);
       setCustomValues((vals as CustomFieldValue[]) ?? []);
       setAgents((ag as AgentProfile[]) ?? []);
+      setCalendarEnabled(calMod?.is_active === true);
     } finally {
       setLoading(false);
     }
@@ -340,7 +380,7 @@ export default function ContactDetailPage() {
       organization_id: orgId,
       name: modalName.trim(),
       field_type: modalType,
-      options: modalType !== "text" ? modalOptions.filter(o => o.trim()) : null,
+      options: (modalType === "select" || modalType === "multiselect") ? modalOptions.filter(o => o.trim()) : null,
     }).select().single();
     if (data) {
       setCustomDefs(prev => [...prev, data as CustomFieldDef]);
@@ -448,7 +488,7 @@ export default function ContactDetailPage() {
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
               {customDefs.map(def => (
-                <div key={def.id}>
+                <div key={def.id} style={def.field_type === "daterange" ? { gridColumn: "1 / -1" } : {}}>
                   <p style={{ fontSize: "10px", fontWeight: 600, color: "#444", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 6px" }}>{def.name}</p>
                   {def.field_type === "text" && (
                     <EditableField label="" value={getCustomValue(def.id)} onSave={v => saveCustomValue(def.id, v)} />
@@ -458,6 +498,12 @@ export default function ContactDetailPage() {
                   )}
                   {def.field_type === "multiselect" && (
                     <MultiSelectField def={def} value={getCustomValue(def.id)} onSave={v => saveCustomValue(def.id, v)} />
+                  )}
+                  {def.field_type === "date" && (
+                    <DateField value={getCustomValue(def.id)} onSave={v => saveCustomValue(def.id, v)} />
+                  )}
+                  {def.field_type === "daterange" && (
+                    <DateRangeField value={getCustomValue(def.id)} onSave={v => saveCustomValue(def.id, v)} />
                   )}
                 </div>
               ))}
@@ -499,18 +545,27 @@ export default function ContactDetailPage() {
             {/* Tipo */}
             <div>
               <p style={{ fontSize: "10px", fontWeight: 600, color: "#444", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 10px" }}>Tipo</p>
-              <div style={{ display: "flex", gap: "8px" }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
                 {([
                   { key: "text", label: "Texto" },
                   { key: "select", label: "Selección única" },
                   { key: "multiselect", label: "Multi selección" },
-                ] as { key: "text" | "select" | "multiselect"; label: string }[]).map(t => (
+                  ...(calendarEnabled ? [
+                    { key: "date", label: "📅 Fecha Única" },
+                    { key: "daterange", label: "📅 Rango de Fecha" },
+                  ] : []),
+                ] as { key: typeof modalType; label: string }[]).map(t => (
                   <button key={t.key} onClick={() => setModalType(t.key)}
-                    style={{ flex: 1, padding: "7px 6px", borderRadius: "8px", border: `1px solid ${modalType === t.key ? "#c8f13540" : "#2a2a2a"}`, background: modalType === t.key ? "#c8f13510" : "transparent", color: modalType === t.key ? "#c8f135" : "#555", fontSize: "11px", fontWeight: 600, cursor: "pointer" }}>
+                    style={{ padding: "7px 12px", borderRadius: "8px", border: `1px solid ${modalType === t.key ? "#c8f13540" : "#2a2a2a"}`, background: modalType === t.key ? "#c8f13510" : "transparent", color: modalType === t.key ? "#c8f135" : "#555", fontSize: "11px", fontWeight: 600, cursor: "pointer" }}>
                     {t.label}
                   </button>
                 ))}
               </div>
+              {(modalType === "date" || modalType === "daterange") && (
+                <p style={{ fontSize: "10px", color: "#555", margin: "6px 0 0", display: "flex", alignItems: "center", gap: "5px" }}>
+                  <span style={{ color: "#c8f135" }}>●</span> Vinculado al módulo Calendario
+                </p>
+              )}
             </div>
 
             {/* Opciones (select / multiselect) */}

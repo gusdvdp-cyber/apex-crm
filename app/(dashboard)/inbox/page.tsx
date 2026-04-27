@@ -162,9 +162,14 @@ const fmtTime = (iso: string) => {
   return d.toLocaleDateString("es-AR", { day: "2-digit", month: "short" });
 };
 
+const getInboxPrefs = () => {
+  if (typeof window === "undefined") return {};
+  try { return JSON.parse(localStorage.getItem("inbox_prefs") || "{}"); } catch { return {}; }
+};
+
 export default function InboxPage() {
-  const [col1Width, setCol1Width] = useState(280);
-  const [col2Width, setCol2Width] = useState(240);
+  const [col1Width, setCol1Width] = useState(() => getInboxPrefs().col1Width ?? 280);
+  const [col2Width, setCol2Width] = useState(() => getInboxPrefs().col2Width ?? 240);
   const dragRef = useRef<{ col: 1 | 2; startX: number; startWidth: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -173,9 +178,9 @@ export default function InboxPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [showContactPanel, setShowContactPanel] = useState(true);
-  const [activeTab, setActiveTab] = useState<Tab>("social");
-  const [convFilter, setConvFilter] = useState<ConvFilter>("all");
+  const [showContactPanel, setShowContactPanel] = useState(() => getInboxPrefs().showContactPanel ?? true);
+  const [activeTab, setActiveTab] = useState<Tab>(() => getInboxPrefs().activeTab ?? "social");
+  const [convFilter, setConvFilter] = useState<ConvFilter>(() => getInboxPrefs().convFilter ?? "all");
   const [search, setSearch] = useState("");
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
@@ -192,6 +197,9 @@ export default function InboxPage() {
 
   useEffect(() => { init(); }, []);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [timeline]);
+  useEffect(() => {
+    localStorage.setItem("inbox_prefs", JSON.stringify({ col1Width, col2Width, showContactPanel, activeTab, convFilter }));
+  }, [col1Width, col2Width, showContactPanel, activeTab, convFilter]);
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
