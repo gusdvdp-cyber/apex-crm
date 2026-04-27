@@ -227,13 +227,17 @@ export default function InboxPage() {
   const [templateError, setTemplateError] = useState("");
   const [toasts, setToasts] = useState<ToastNotif[]>([]);
   const conversationsRef = useRef<Conversation[]>([]);
+  const realtimeClientRef = useRef<ReturnType<typeof createClient> | null>(null);
 
   // Deriva selected siempre fresco desde el array de conversations
   const selected = conversations.find(c => c.id === selectedId) ?? null;
 
   useEffect(() => { conversationsRef.current = conversations; }, [conversations]);
 
-  useEffect(() => { init(); }, []);
+  useEffect(() => {
+    init();
+    return () => { realtimeClientRef.current?.removeAllChannels(); };
+  }, []);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [timeline]);
   useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
   useEffect(() => {
@@ -347,6 +351,7 @@ export default function InboxPage() {
 
   const setupRealtime = (oid: string) => {
     const supabase = createClient();
+    realtimeClientRef.current = supabase;
     supabase.channel("inbox-msgs")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, payload => {
         const msg = payload.new as Message & { conversation_id: string; from_type: string };
