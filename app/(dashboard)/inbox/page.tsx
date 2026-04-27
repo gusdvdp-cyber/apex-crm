@@ -338,7 +338,16 @@ export default function InboxPage() {
         const msg = payload.new as Message;
         setTimeline(prev => prev.find(i => i.type === "message" && i.data.id === msg.id) ? prev : [...prev, { type: "message", ts: msg.created_at, data: msg }]);
         fetchConversations(oid);
-      }).subscribe();
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "messages" }, payload => {
+        const updated = payload.new as Message;
+        setTimeline(prev => prev.map(item =>
+          item.type === "message" && item.data.id === updated.id
+            ? { ...item, data: { ...item.data, status: updated.status } }
+            : item
+        ));
+      })
+      .subscribe();
     supabase.channel("inbox-act")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "activity_log" }, payload => {
         const log = payload.new as ActivityEntry;
