@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
         const form = new FormData();
         form.append("messaging_product", "whatsapp");
         form.append("type", mimeType);
-        form.append("file", new Blob([fileBuffer], { type: mimeType }), `media.${ext}`);
+        form.append("file", new File([fileBuffer], `media.${ext}`, { type: mimeType }));
 
         const uploadRes = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/media`, {
           method: "POST",
