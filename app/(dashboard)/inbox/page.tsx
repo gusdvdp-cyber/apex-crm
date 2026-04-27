@@ -366,21 +366,22 @@ export default function InboxPage() {
     setSending(false);
   };
 
-  const uploadAndSendAudio = async (blob: Blob) => {
+  const uploadAndSendAudio = async (blob: Blob, mimeType: string) => {
     if (!selected || !orgId) return;
     setUploading(true);
     const supabase = createClient();
-    const path = `outbound/${orgId}/${Date.now()}.ogg`;
-    const { error } = await supabase.storage.from("media").upload(path, blob, { contentType: "audio/ogg", upsert: true });
+    const ext = mimeType.includes("ogg") ? "ogg" : mimeType.includes("mp4") ? "mp4" : "webm";
+    const path = `outbound/${orgId}/${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from("media").upload(path, blob, { contentType: mimeType, upsert: true });
     if (error) { console.error("Audio upload error:", error.message); alert("Error al subir audio: " + error.message); setUploading(false); return; }
     const { data: urlData } = supabase.storage.from("media").getPublicUrl(path);
     const res = await fetch("/api/messages/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversation_id: selected.id, content: "", media_url: urlData.publicUrl, media_type: "audio", media_mime: "audio/ogg" }),
+      body: JSON.stringify({ conversation_id: selected.id, content: "", media_url: urlData.publicUrl, media_type: "audio", media_mime: mimeType }),
     });
     if (res.ok) { fetchTimeline(selected.id); if (orgId) fetchConversations(orgId); }
-    else { const j = await res.json().catch(() => ({})); alert("Error al enviar: " + (j.detail || j.error || "desconocido")); }
+    else { const j = await res.json().catch(() => ({})); alert("Error al enviar audio: " + (j.detail || j.error || "desconocido")); }
     setUploading(false);
   };
 
@@ -388,7 +389,11 @@ export default function InboxPage() {
     if (recording || !selected) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/ogg";
+      // Prefer formats WhatsApp accepts: ogg/opus → mp4 → webm
+      const mimeType =
+        MediaRecorder.isTypeSupported("audio/ogg;codecs=opus") ? "audio/ogg;codecs=opus" :
+        MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" :
+        "audio/webm;codecs=opus";
       const mr = new MediaRecorder(stream, { mimeType });
       mediaRecorderRef.current = mr;
       audioChunksRef.current = [];
@@ -396,7 +401,7 @@ export default function InboxPage() {
       mr.onstop = () => {
         stream.getTracks().forEach(t => t.stop());
         const blob = new Blob(audioChunksRef.current, { type: mimeType });
-        uploadAndSendAudio(blob);
+        uploadAndSendAudio(blob, mimeType);
       };
       mr.start();
       setRecording(true);
