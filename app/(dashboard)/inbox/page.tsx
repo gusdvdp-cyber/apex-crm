@@ -367,8 +367,7 @@ export default function InboxPage() {
   };
 
   const convertToMp3 = async (blob: Blob): Promise<Blob> => {
-    const lamejs = await import("lamejs");
-    const Mp3Encoder = lamejs.default?.Mp3Encoder ?? (lamejs as unknown as { Mp3Encoder: new (ch: number, sr: number, br: number) => unknown }).Mp3Encoder;
+    const { Mp3Encoder } = await import("lamejs");
     const arrayBuffer = await blob.arrayBuffer();
     const audioCtx = new AudioContext();
     const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
@@ -376,7 +375,7 @@ export default function InboxPage() {
     const samples = audioBuffer.getChannelData(0);
     const pcm = new Int16Array(samples.length);
     for (let i = 0; i < samples.length; i++) pcm[i] = Math.max(-32768, Math.min(32767, samples[i] * 32768));
-    const encoder = new (Mp3Encoder as new (ch: number, sr: number, br: number) => { encodeBuffer: (b: Int16Array) => Int8Array; flush: () => Int8Array })(1, audioBuffer.sampleRate, 128);
+    const encoder = new Mp3Encoder(1, audioBuffer.sampleRate, 128);
     const parts: Int8Array[] = [];
     const block = 1152;
     for (let i = 0; i < pcm.length; i += block) {
