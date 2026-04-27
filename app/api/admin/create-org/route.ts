@@ -37,8 +37,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: orgErr?.message || "Error al crear organización" }, { status: 500 });
 
     // Invite admin user — trigger SQL creates profile automatically
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://apex.fluxia.site";
     const { error: inviteErr } = await admin.auth.admin.inviteUserByEmail(admin_email, {
       data: { organization_id: org.id, role: "admin", display_name: admin_email.split("@")[0] },
+      redirectTo: `${siteUrl}/callback?next=/set-password`,
     });
 
     if (inviteErr) {

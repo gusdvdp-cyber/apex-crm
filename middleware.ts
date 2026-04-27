@@ -44,8 +44,8 @@ export async function middleware(request: NextRequest) {
 
   const path = request.nextUrl.pathname;
   const isAuthPage = path.startsWith("/login");
-  const isCallback = path.startsWith("/auth/callback");
-  const isPublic = path.startsWith("/privacy") || path.startsWith("/terms");
+  const isCallback = path.startsWith("/auth/callback") || path.startsWith("/callback");
+  const isPublic = path.startsWith("/privacy") || path.startsWith("/terms") || path.startsWith("/set-password");
   const isApi = path.startsWith("/api");
 
   // ── 3. Reglas de redirección ───────────────────────────────
