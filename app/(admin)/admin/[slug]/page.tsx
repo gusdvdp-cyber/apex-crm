@@ -117,6 +117,22 @@ export default function OrgDetailPage() {
     setTogglingModule(null);
   };
 
+  const deleteOrg = async () => {
+    if (!org) return;
+    if (!window.confirm(`¿Seguro que querés eliminar "${org.name}"? Esta acción no se puede deshacer.`)) return;
+    const res = await fetch("/api/admin/delete-org", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ org_id: org.id }),
+    });
+    if (res.ok) {
+      router.push("/admin");
+    } else {
+      const j = await res.json();
+      alert(j.error ?? "Error al eliminar");
+    }
+  };
+
   const saveChanges = async () => {
     if (!org) return;
     setSaving(true);
@@ -422,7 +438,10 @@ export default function OrgDetailPage() {
         <p style={{ fontSize: "11px", color: "#444", margin: "0 0 14px" }}>
           Eliminar esta organización borrará todos sus datos permanentemente.
         </p>
-        <button style={{ padding: "8px 16px", borderRadius: "8px", background: "transparent", border: "1px solid #ff444440", cursor: "pointer", fontSize: "11px", fontWeight: 700, color: "#ff4444" }}>
+        <button
+          onClick={deleteOrg}
+          style={{ padding: "8px 16px", borderRadius: "8px", background: "transparent", border: "1px solid #ff444440", cursor: "pointer", fontSize: "11px", fontWeight: 700, color: "#ff4444" }}
+        >
           Eliminar organización
         </button>
       </div>
