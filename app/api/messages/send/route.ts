@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(req: NextRequest) {
   try {
-    const { conversation_id, content, media_url, media_type } = await req.json();
+    const { conversation_id, content, media_url, media_type, media_mime } = await req.json();
     if (!conversation_id || (!content && !media_url))
       return NextResponse.json({ error: "Faltan parámetros" }, { status: 400 });
 
@@ -82,20 +82,44 @@ export async function POST(req: NextRequest) {
 
       let waBody: Record<string, unknown>;
 
-      if (media_url && media_type === "image") {
-        waBody = {
-          messaging_product: "whatsapp",
-          to: phone,
-          type: "image",
-          image: { link: media_url, ...(content ? { caption: content } : {}) },
-        };
-      } else if (media_url && media_type === "audio") {
-        waBody = {
-          messaging_product: "whatsapp",
-          to: phone,
-          type: "audio",
-          audio: { link: media_url },
-        };
+      if (media_url && (media_type === "image" || media_type === "audio")) {
+        // Upload to Meta Media API to get a media_id
+        const mimeType = media_mime || (media_type === "image" ? "image/jpeg" : "audio/ogg");
+        const ext = mimeType.split("/")[1]?.split(";")[0] ?? "bin";
+
+        const fileRes = await fetch(media_url);
+        const fileBuffer = await fileRes.arrayBuffer();
+
+        const form = new FormData();
+        form.append("messaging_product", "whatsapp");
+        form.append("type", mimeType);
+        form.append("file", new Blob([fileBuffer], { type: mimeType }), `media.${ext}`);
+
+        const uploadRes = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/media`, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${accessToken}` },
+          body: form,
+        });
+
+        if (!uploadRes.ok) {
+          const err = await uploadRes.text();
+          console.error("Meta media upload error:", err);
+          return NextResponse.json({ error: "Error al subir media a Meta", detail: err }, { status: 500 });
+        }
+
+        const { id: mediaId } = await uploadRes.json() as { id: string };
+
+        if (media_type === "image") {
+          waBody = {
+            messaging_product: "whatsapp", to: phone, type: "image",
+            image: { id: mediaId, ...(content ? { caption: content } : {}) },
+          };
+        } else {
+          waBody = {
+            messaging_product: "whatsapp", to: phone, type: "audio",
+            audio: { id: mediaId },
+          };
+        }
       } else {
         waBody = {
           messaging_product: "whatsapp",

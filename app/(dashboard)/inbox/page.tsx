@@ -377,7 +377,7 @@ export default function InboxPage() {
     const res = await fetch("/api/messages/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversation_id: selected.id, content: "", media_url: urlData.publicUrl, media_type: "audio" }),
+      body: JSON.stringify({ conversation_id: selected.id, content: "", media_url: urlData.publicUrl, media_type: "audio", media_mime: "audio/ogg" }),
     });
     if (res.ok) { fetchTimeline(selected.id); if (orgId) fetchConversations(orgId); }
     else { const j = await res.json().catch(() => ({})); alert("Error al enviar: " + (j.detail || j.error || "desconocido")); }
@@ -431,7 +431,7 @@ export default function InboxPage() {
     const res = await fetch("/api/messages/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversation_id: selected.id, content: "", media_url: urlData.publicUrl, media_type: mediaType }),
+      body: JSON.stringify({ conversation_id: selected.id, content: "", media_url: urlData.publicUrl, media_type: mediaType, media_mime: file.type }),
     });
     if (res.ok) {
       fetchTimeline(selected.id);
