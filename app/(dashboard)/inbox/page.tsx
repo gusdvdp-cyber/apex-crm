@@ -118,6 +118,16 @@ function MessageContent({ msg }: { msg: Message }) {
   if (msg.media_type === "audio" && msg.media_url) {
     return <audio controls src={msg.media_url} style={{ width: "100%", minWidth: "200px" }} />;
   }
+  if (msg.media_type === "document" && msg.media_url) {
+    const filename = msg.text && msg.text !== "[documento]" ? msg.text : "Documento";
+    return (
+      <a href={msg.media_url} target="_blank" rel="noopener noreferrer"
+        style={{ display: "flex", alignItems: "center", gap: "8px", textDecoration: "none", color }}>
+        <span style={{ fontSize: "20px", flexShrink: 0 }}>📄</span>
+        <span style={{ fontSize: "12px", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{filename}</span>
+      </a>
+    );
+  }
   return <p style={{ margin: 0, color }}>{msg.text}</p>;
 }
 
@@ -549,11 +559,13 @@ export default function InboxPage() {
     if (error) { console.error("Upload error:", error.message); alert("Error al subir archivo: " + error.message); setUploading(false); return; }
 
     const { data: urlData } = supabase.storage.from("media").getPublicUrl(path);
+    const isDoc = file.type === "application/pdf";
+    const mediaTypeVal = isDoc ? "document" : "image";
 
     const res = await fetch("/api/messages/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversation_id: selected.id, content: "", media_url: urlData.publicUrl, media_type: "image", media_mime: file.type }),
+      body: JSON.stringify({ conversation_id: selected.id, content: isDoc ? file.name : "", media_url: urlData.publicUrl, media_type: mediaTypeVal, media_mime: file.type, media_filename: file.name }),
     });
     if (res.ok) {
       fetchTimeline(selected.id);
@@ -808,7 +820,7 @@ export default function InboxPage() {
                   {isMe && msg.sender?.display_name && (
                     <span style={{ fontSize: "10px", color: "#555", marginBottom: "3px", paddingRight: "4px" }}>{msg.sender.display_name}</span>
                   )}
-                  <div style={{ maxWidth: "65%", padding: msg.media_type === "image" ? "6px" : "10px 14px", background: isMe ? "var(--accent)" : "#161616", borderRadius: isMe ? "16px 16px 4px 16px" : "16px 16px 16px 4px", fontSize: "13px", lineHeight: "1.5", overflow: "hidden" }}>
+                  <div style={{ maxWidth: "65%", padding: msg.media_type === "image" ? "6px" : "10px 14px", background: isMe ? "var(--accent)" : "#161616", borderRadius: isMe ? "16px 16px 4px 16px" : "16px 16px 16px 4px", fontSize: "13px", lineHeight: "1.5", overflow: "hidden", minWidth: msg.media_type === "document" ? "200px" : undefined }}>
                     <MessageContent msg={msg} />
                     <div style={{ margin: "4px 0 0", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "3px" }}>
                       <span style={{ fontSize: "10px", opacity: 0.5, color: isMe ? "#0a0a0a" : "#f0f0f0" }}>{fmtTime(msg.created_at)}</span>
@@ -823,7 +835,7 @@ export default function InboxPage() {
 
           {/* Input */}
           <div style={{ padding: "14px 20px", background: "#0d0d0d", borderTop: "1px solid #1a1a1a", flexShrink: 0 }}>
-            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileSelect} style={{ display: "none" }} />
+            <input ref={fileInputRef} type="file" accept="image/*,application/pdf" onChange={handleFileSelect} style={{ display: "none" }} />
 
             {/* Template picker */}
             {showTemplates && selected?.channel === "whatsapp" && (

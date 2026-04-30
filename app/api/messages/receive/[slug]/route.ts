@@ -90,7 +90,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
         const messages = (value.messages as Record<string, unknown>[]) ?? [];
 
         for (const msg of messages) {
-          if (msg.type !== "text" && msg.type !== "image" && msg.type !== "audio") continue;
+          if (msg.type !== "text" && msg.type !== "image" && msg.type !== "audio" && msg.type !== "document") continue;
 
           const phone = msg.from as string;
           const waMsgId = msg.id as string;
@@ -299,6 +299,16 @@ async function upsertWaMessage({ orgId, phone, contactName, waMsgId, msg, access
       if (stored) { mediaUrl = stored.url; mediaType = stored.type; }
       else mediaType = "audio";
     } else { mediaType = "audio"; }
+  } else if (msg.type === "document") {
+    const docObj = msg.document as Record<string, string> | undefined;
+    const filename = docObj?.filename ?? "documento.pdf";
+    text = filename;
+    const mediaId = docObj?.id;
+    if (mediaId && accessToken) {
+      const stored = await fetchAndStoreMedia(mediaId, accessToken, orgId, waMsgId);
+      if (stored) { mediaUrl = stored.url; mediaType = "document"; }
+      else mediaType = "document";
+    } else { mediaType = "document"; }
   }
 
   await admin.from("messages").insert({

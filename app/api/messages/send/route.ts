@@ -62,7 +62,7 @@ async function findOrCreateConversation(orgId: string, phone: string | number, c
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    let { conversation_id, content, media_url, media_type, media_mime, template_name, template_language, template_components, org_slug, contact_name } = body;
+    let { conversation_id, content, media_url, media_type, media_mime, media_filename, template_name, template_language, template_components, org_slug, contact_name } = body;
   let phone: string = digitsOnly(body.phone ?? "");
 
     if (!content && !media_url && !template_name)
@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
       ]);
     }
 
-    const displayText = content || (template_name ? `[Plantilla: ${template_name}]` : media_type === "image" ? "[imagen]" : "[archivo]");
+    const displayText = content || (template_name ? `[Plantilla: ${template_name}]` : media_type === "image" ? "[imagen]" : media_type === "document" ? (media_filename ?? "[documento]") : "[archivo]");
 
     const saveMessage = async (externalId: string | null) => {
       await Promise.all([
@@ -215,6 +215,34 @@ export async function POST(req: NextRequest) {
         waBody = {
           messaging_product: "whatsapp", to: toPhone, type: "image",
           image: { id: mediaId, ...(content ? { caption: content } : {}) },
+        };
+      } else if (media_url && media_type === "document") {
+        const mimeType = (media_mime || "application/pdf").split(";")[0];
+        const filename = media_filename ?? "documento.pdf";
+
+        const fileRes = await fetch(media_url);
+        if (!fileRes.ok)
+          return NextResponse.json({ error: "Error al descargar documento" }, { status: 500 });
+        const fileBuffer = await fileRes.arrayBuffer();
+
+        const form = new FormData();
+        form.append("messaging_product", "whatsapp");
+        form.append("type", mimeType);
+        form.append("file", new File([fileBuffer], filename, { type: mimeType }));
+
+        const uploadRes = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/media`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}` },
+          body: form,
+        });
+        if (!uploadRes.ok) {
+          const err = await uploadRes.text();
+          return NextResponse.json({ error: "Error al subir documento a Meta", detail: err }, { status: 500 });
+        }
+        const { id: mediaId } = await uploadRes.json() as { id: string };
+        waBody = {
+          messaging_product: "whatsapp", to: toPhone, type: "document",
+          document: { id: mediaId, filename },
         };
       } else {
         waBody = {
